@@ -251,6 +251,7 @@ public class AdminPlatformService {
     card.put("clips", strings(input.get("clips")));
     card.put("recordingUrl", String.valueOf(input.getOrDefault("recordingUrl", "")).trim());
     card.put("recordingClips", strings(input.get("recordingClips")));
+    card.put("recordingTitles", strings(input.get("recordingTitles")));
     card.put("groupName", String.valueOf(input.getOrDefault("groupName", "主播招聘群")).trim());
     card.put("groupDescription", String.valueOf(input.getOrDefault("groupDescription", "免费招主播 · 免费进群")).trim());
     return card;
