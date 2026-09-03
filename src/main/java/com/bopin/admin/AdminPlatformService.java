@@ -250,6 +250,7 @@ public class AdminPlatformService {
     card.put("coverImage", String.valueOf(input.getOrDefault("coverImage", "")).trim());
     card.put("clips", strings(input.get("clips")));
     card.put("recordingUrl", String.valueOf(input.getOrDefault("recordingUrl", "")).trim());
+    card.put("recordingClips", strings(input.get("recordingClips")));
     card.put("groupName", String.valueOf(input.getOrDefault("groupName", "主播招聘群")).trim());
     card.put("groupDescription", String.valueOf(input.getOrDefault("groupDescription", "免费招主播 · 免费进群")).trim());
     return card;
@@ -310,6 +311,10 @@ public class AdminPlatformService {
     if (file.getSize() > 300L * 1024 * 1024) throw new BusinessException("上传文件不能超过 300MB");
     String originalName = file.getOriginalFilename() == null ? "media" : file.getOriginalFilename();
     String suffix = originalName.contains(".") ? originalName.substring(originalName.lastIndexOf('.')).toLowerCase() : "";
+    String contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase();
+    // H5 选择本地视频时，浏览器可能只传 blob 文件名；优先用 MIME 类型，仍无类型时按视频兼容处理。
+    if (suffix.isBlank() && contentType.startsWith("video/")) suffix = ".mp4";
+    if (suffix.isBlank() && (contentType.isBlank() || "application/octet-stream".equals(contentType))) suffix = ".mp4";
     if (!List.of(".mp4", ".mov", ".m4v", ".webm", ".jpg", ".jpeg", ".png", ".webp").contains(suffix)) {
       throw new BusinessException("仅支持常见视频或图片格式");
     }
