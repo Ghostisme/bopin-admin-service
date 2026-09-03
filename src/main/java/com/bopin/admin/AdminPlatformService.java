@@ -769,6 +769,8 @@ public class AdminPlatformService {
     result.put("serviceAccess", adminServiceAccess());
     result.put("notices", notices(Map.of()));
     result.put("contactUnlocks", jdbc.queryForList("SELECT * FROM contact_unlock ORDER BY created_at DESC"));
+    result.put("paidServiceOrders", jdbc.queryForList("SELECT * FROM paid_service_order ORDER BY created_at DESC"));
+    result.put("withdrawalRequests", jdbc.queryForList("SELECT * FROM withdrawal_request ORDER BY created_at DESC"));
     result.put("membershipOrders", jdbc.queryForList("SELECT * FROM membership_order ORDER BY created_at DESC"));
     result.put("aiScripts", jdbc.queryForList("SELECT id,user_id,scene,product,tone,created_at FROM ai_script ORDER BY created_at DESC"));
     result.put("contracts", contracts());
