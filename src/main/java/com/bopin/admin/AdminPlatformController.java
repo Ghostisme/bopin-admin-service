@@ -84,4 +84,5 @@ public class AdminPlatformController {
 
   @GetMapping("/admin/overview") public ApiResult<Map<String,Object>> overview() { return ApiResult.ok(service.adminOverview()); }
   @GetMapping("/admin/export") public ApiResult<Map<String,Object>> export() { return ApiResult.ok(service.adminExport()); }
+  @GetMapping("/admin/anchor-cards") public ApiResult<List<Map<String,Object>>> anchorCards() { return ApiResult.ok(service.adminAnchorCards()); }
 }

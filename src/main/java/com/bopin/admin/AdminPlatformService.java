@@ -219,10 +219,11 @@ public class AdminPlatformService {
     String stageName = input.get("stageName") == null ? "" : String.valueOf(input.get("stageName")).trim();
     String city = input.get("city") == null ? "" : String.valueOf(input.get("city")).trim();
     String intro = input.get("intro") == null ? "" : String.valueOf(input.get("intro")).trim();
+    String birthMonth = input.get("birthMonth") == null ? "" : String.valueOf(input.get("birthMonth")).trim();
     List<String> categories = strings(input.get("categories")).stream().map(String::trim).filter(value -> !value.isBlank()).distinct().toList();
     int experienceYears;
     try { experienceYears = Integer.parseInt(String.valueOf(input.getOrDefault("experienceYears", 0))); } catch (Exception error) { experienceYears = -1; }
-    if (stageName.isBlank() || city.isBlank() || intro.isBlank() || categories.isEmpty() || experienceYears < 0) {
+    if (stageName.isBlank() || city.isBlank() || intro.isBlank() || categories.isEmpty() || experienceYears < 0 || (input.containsKey("birthMonth") && birthMonth.isBlank())) {
       throw new BusinessException("请完善模卡必填项：艺名、品类、城市、经验和个人简介");
     }
     Map<String, Object> card = new LinkedHashMap<>();
@@ -230,8 +231,13 @@ public class AdminPlatformService {
     card.put("categories", categories);
     card.put("city", city);
     card.put("intro", intro);
+    card.put("birthMonth", birthMonth);
     card.put("experienceYears", experienceYears);
-    card.put("expectedSalary", String.valueOf(input.getOrDefault("expectedSalary", "面议")).trim());
+    String monthlySalary = String.valueOf(input.getOrDefault("monthlySalary", "")).trim();
+    String hourlySalary = String.valueOf(input.getOrDefault("hourlySalary", "")).trim();
+    String expectedSalary = String.valueOf(input.getOrDefault("expectedSalary", "")).trim();
+    if (expectedSalary.isBlank()) expectedSalary = !monthlySalary.isBlank() ? monthlySalary : !hourlySalary.isBlank() ? hourlySalary : "面议";
+    card.put("expectedSalary", expectedSalary);
     card.put("availableTime", String.valueOf(input.getOrDefault("availableTime", "时间可协商")).trim());
     card.put("age", numberValue(input.getOrDefault("age", 23), 23));
     card.put("gender", String.valueOf(input.getOrDefault("gender", "女")).trim());
@@ -242,6 +248,10 @@ public class AdminPlatformService {
     List<String> expectedCities = strings(input.get("expectedCities")).stream().map(String::trim).filter(value -> !value.isBlank()).distinct().toList();
     card.put("expectedCities", expectedCities.isEmpty() ? List.of(city) : expectedCities);
     card.put("acceptShift", booleanValue(input.getOrDefault("acceptShift", false)));
+    card.put("workType", String.valueOf(input.getOrDefault("workType", "")).trim());
+    card.put("monthlySalary", monthlySalary);
+    card.put("hourlySalary", hourlySalary);
+    card.put("naturalTraffic", booleanValue(input.getOrDefault("naturalTraffic", false)));
     card.put("experienceCategory", String.valueOf(input.getOrDefault("experienceCategory", categories.get(0))).trim());
     card.put("accountName", String.valueOf(input.getOrDefault("accountName", "合****")).trim());
     card.put("peakGmv", String.valueOf(input.getOrDefault("peakGmv", "30万")).trim());
@@ -614,6 +624,7 @@ public class AdminPlatformService {
   public Map<String, Object> adminExport() {
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("anchors", jdbc.queryForList("SELECT id,nickname,verified,city,categories,card_status,card_data,created_at FROM app_user WHERE role='anchor' ORDER BY created_at DESC"));
+    result.put("anchorCards", adminAnchorCards());
     result.put("notices", notices(Map.of()));
     result.put("contactUnlocks", jdbc.queryForList("SELECT * FROM contact_unlock ORDER BY created_at DESC"));
     result.put("membershipOrders", jdbc.queryForList("SELECT * FROM membership_order ORDER BY created_at DESC"));
@@ -632,5 +643,29 @@ public class AdminPlatformService {
     result.put("eorRequests", eorRequests());
     result.put("overview", adminOverview());
     return result;
+  }
+
+  /** 管理后台查看主播的全部公开模卡，而不是只看主模卡摘要。 */
+  public List<Map<String, Object>> adminAnchorCards() {
+    migrateLegacyCards();
+    return jdbc.queryForList("SELECT u.id AS user_id,u.nickname,u.avatar,u.phone,u.verified,c.id AS card_id,c.card_data,c.is_primary,c.status,c.created_at,c.updated_at FROM app_user u JOIN anchor_card c ON c.owner_id=u.id WHERE u.role='anchor' AND c.status='PUBLIC' ORDER BY c.updated_at DESC")
+      .stream()
+      .map(row -> {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", text(row, "USER_ID"));
+        result.put("nickname", text(row, "NICKNAME"));
+        result.put("avatar", text(row, "AVATAR"));
+        result.put("phone", text(row, "PHONE"));
+        result.put("verified", booleanValue(row.get("VERIFIED")));
+        Map<String, Object> card = object(row.get("CARD_DATA"));
+        card.put("id", text(row, "CARD_ID"));
+        card.put("isPrimary", booleanValue(row.get("IS_PRIMARY")));
+        card.put("status", text(row, "STATUS"));
+        card.put("createdAt", longValue(row.get("CREATED_AT")));
+        card.put("updatedAt", longValue(row.get("UPDATED_AT")));
+        result.put("card", card);
+        return result;
+      })
+      .toList();
   }
 }
