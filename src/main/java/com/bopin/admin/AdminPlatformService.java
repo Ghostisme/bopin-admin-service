@@ -4,6 +4,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -13,6 +16,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class AdminPlatformService {
@@ -59,6 +63,10 @@ public class AdminPlatformService {
   }
   private String text(Map<String, Object> row, String key) { return row == null || row.get(key) == null ? "" : String.valueOf(row.get(key)); }
   private int number(Map<String, Object> row, String key) { return row == null || row.get(key) == null ? 0 : ((Number) row.get(key)).intValue(); }
+  private long longValue(Object value) {
+    if (value instanceof Number number) return number.longValue();
+    try { return Long.parseLong(String.valueOf(value)); } catch (Exception error) { return 0L; }
+  }
 
   @Transactional
   public Map<String, Object> register(Map<String, Object> input) {
@@ -103,13 +111,18 @@ public class AdminPlatformService {
   public Map<String, Object> profile(String uid) {
     var row = one("SELECT * FROM app_user WHERE id=?", uid);
     if (row == null) throw new BusinessException("用户不存在");
+    boolean anchor = "anchor".equalsIgnoreCase(text(row, "ROLE"));
+    if (anchor) migrateLegacyCard(row);
+    List<Map<String, Object>> cards = anchor ? anchorCards(uid) : List.of();
+    Map<String, Object> primaryCard = cards.stream().filter(card -> booleanValue(card.get("isPrimary"))).findFirst().orElse(cards.isEmpty() ? null : cards.get(0));
     Map<String, Object> resume = new LinkedHashMap<>();
     resume.put("nickname", text(row, "NICKNAME")); resume.put("categories", strings(row.get("CATEGORIES"))); resume.put("city", text(row, "CITY")); resume.put("intro", text(row, "INTRO")); resume.put("experienceYears", number(row, "EXPERIENCE_YEARS"));
     boolean hasResume = !text(row, "INTRO").isBlank() || !strings(row.get("CATEGORIES")).isEmpty() || !text(row, "CITY").isBlank() || number(row, "EXPERIENCE_YEARS") > 0;
     Map<String, Object> result = new LinkedHashMap<>();
-    boolean cardCompleted = "merchant".equalsIgnoreCase(text(row, "ROLE")) || "COMPLETE".equalsIgnoreCase(text(row, "CARD_STATUS"));
+    boolean cardCompleted = "merchant".equalsIgnoreCase(text(row, "ROLE")) || !cards.isEmpty();
     result.put("id", text(row, "ID")); result.put("role", text(row, "ROLE")); result.put("nickname", text(row, "NICKNAME")); result.put("avatar", text(row, "AVATAR")); result.put("phone", text(row, "PHONE")); result.put("verified", Boolean.TRUE.equals(row.get("VERIFIED"))); result.put("resume", hasResume ? resume : null);
-    result.put("anchorCard", "anchor".equalsIgnoreCase(text(row, "ROLE")) && cardCompleted ? object(row.get("CARD_DATA")) : null);
+    result.put("anchorCard", primaryCard);
+    result.put("anchorCards", cards);
     result.put("cardCompleted", cardCompleted);
     return result;
   }
@@ -129,6 +142,80 @@ public class AdminPlatformService {
   public Map<String, Object> updateAnchorCard(String token, Map<String, Object> input) {
     requireRole(token, "anchor");
     String uid = userId(token);
+    migrateLegacyCard(one("SELECT * FROM app_user WHERE id=?", uid));
+    String cardId = String.valueOf(input.getOrDefault("id", "")).trim();
+    if (cardId.isBlank()) {
+      var primary = primaryCardRow(uid);
+      cardId = primary == null ? "" : text(primary, "ID");
+    }
+    return saveAnchorCard(uid, cardId, input);
+  }
+
+  @Transactional
+  public Map<String, Object> createAnchorCard(String token, Map<String, Object> input) {
+    requireRole(token, "anchor");
+    return saveAnchorCard(userId(token), "", input);
+  }
+
+  @Transactional
+  public Map<String, Object> updateAnchorCard(String token, String cardId, Map<String, Object> input) {
+    requireRole(token, "anchor");
+    return saveAnchorCard(userId(token), cardId, input);
+  }
+
+  @Transactional
+  public Map<String, Object> deleteAnchorCard(String token, String cardId) {
+    requireRole(token, "anchor");
+    String uid = userId(token);
+    migrateLegacyCard(one("SELECT * FROM app_user WHERE id=?", uid));
+    var card = one("SELECT * FROM anchor_card WHERE id=? AND owner_id=? AND status='PUBLIC'", cardId, uid);
+    if (card == null) throw new BusinessException("模卡不存在或无权操作");
+    boolean wasPrimary = booleanValue(card.get("IS_PRIMARY"));
+    jdbc.update("DELETE FROM anchor_card WHERE id=? AND owner_id=?", cardId, uid);
+    if (wasPrimary) {
+      var replacement = one("SELECT id FROM anchor_card WHERE owner_id=? AND status='PUBLIC' ORDER BY updated_at DESC", uid);
+      if (replacement != null) jdbc.update("UPDATE anchor_card SET is_primary=TRUE,updated_at=? WHERE id=?", now(), text(replacement, "ID"));
+    }
+    syncPrimaryCardToUser(uid);
+    return profile(uid);
+  }
+
+  @Transactional
+  public Map<String, Object> setPrimaryAnchorCard(String token, String cardId) {
+    requireRole(token, "anchor");
+    String uid = userId(token);
+    migrateLegacyCard(one("SELECT * FROM app_user WHERE id=?", uid));
+    if (one("SELECT id FROM anchor_card WHERE id=? AND owner_id=? AND status='PUBLIC'", cardId, uid) == null) {
+      throw new BusinessException("模卡不存在或无权操作");
+    }
+    long timestamp = now();
+    jdbc.update("UPDATE anchor_card SET is_primary=FALSE WHERE owner_id=?", uid);
+    jdbc.update("UPDATE anchor_card SET is_primary=TRUE,updated_at=? WHERE id=? AND owner_id=?", timestamp, cardId, uid);
+    syncPrimaryCardToUser(uid);
+    return profile(uid);
+  }
+
+  private Map<String, Object> saveAnchorCard(String uid, String cardId, Map<String, Object> input) {
+    migrateLegacyCard(one("SELECT * FROM app_user WHERE id=?", uid));
+    var existing = cardId == null || cardId.isBlank() ? null : one("SELECT * FROM anchor_card WHERE id=? AND owner_id=? AND status='PUBLIC'", cardId, uid);
+    if (cardId != null && !cardId.isBlank() && existing == null) throw new BusinessException("模卡不存在或无权操作");
+    if (existing == null && number(one("SELECT COUNT(*) AS total FROM anchor_card WHERE owner_id=? AND status='PUBLIC'", uid), "TOTAL") >= 5) {
+      throw new BusinessException("最多创建 5 张模卡，请删除不再使用的模卡后再创建");
+    }
+    Map<String, Object> card = buildAnchorCard(input);
+    long timestamp = now();
+    if (existing == null) {
+      String createdId = id("card");
+      boolean isPrimary = primaryCardRow(uid) == null;
+      jdbc.update("INSERT INTO anchor_card(id,owner_id,card_data,is_primary,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)", createdId, uid, json(card), isPrimary, "PUBLIC", timestamp, timestamp);
+    } else {
+      jdbc.update("UPDATE anchor_card SET card_data=?,updated_at=? WHERE id=? AND owner_id=?", json(card), timestamp, cardId, uid);
+    }
+    syncPrimaryCardToUser(uid);
+    return profile(uid);
+  }
+
+  private Map<String, Object> buildAnchorCard(Map<String, Object> input) {
     String stageName = input.get("stageName") == null ? "" : String.valueOf(input.get("stageName")).trim();
     String city = input.get("city") == null ? "" : String.valueOf(input.get("city")).trim();
     String intro = input.get("intro") == null ? "" : String.valueOf(input.get("intro")).trim();
@@ -146,17 +233,154 @@ public class AdminPlatformService {
     card.put("experienceYears", experienceYears);
     card.put("expectedSalary", String.valueOf(input.getOrDefault("expectedSalary", "面议")).trim());
     card.put("availableTime", String.valueOf(input.getOrDefault("availableTime", "时间可协商")).trim());
-    jdbc.update("UPDATE app_user SET nickname=?,city=?,categories=?,intro=?,experience_years=?,card_status='COMPLETE',card_data=? WHERE id=?", stageName, city, json(categories), intro, experienceYears, json(card), uid);
-    return profile(uid);
+    card.put("age", numberValue(input.getOrDefault("age", 23), 23));
+    card.put("gender", String.valueOf(input.getOrDefault("gender", "女")).trim());
+    card.put("height", String.valueOf(input.getOrDefault("height", "166cm")).trim());
+    card.put("weight", String.valueOf(input.getOrDefault("weight", "47kg")).trim());
+    card.put("shoeSize", String.valueOf(input.getOrDefault("shoeSize", "37码")).trim());
+    card.put("education", String.valueOf(input.getOrDefault("education", "本科及以上")).trim());
+    List<String> expectedCities = strings(input.get("expectedCities")).stream().map(String::trim).filter(value -> !value.isBlank()).distinct().toList();
+    card.put("expectedCities", expectedCities.isEmpty() ? List.of(city) : expectedCities);
+    card.put("acceptShift", booleanValue(input.getOrDefault("acceptShift", false)));
+    card.put("experienceCategory", String.valueOf(input.getOrDefault("experienceCategory", categories.get(0))).trim());
+    card.put("accountName", String.valueOf(input.getOrDefault("accountName", "合****")).trim());
+    card.put("peakGmv", String.valueOf(input.getOrDefault("peakGmv", "30万")).trim());
+    card.put("liveYears", numberValue(input.getOrDefault("liveYears", experienceYears), experienceYears));
+    card.put("advantage", String.valueOf(input.getOrDefault("advantage", intro)).trim());
+    card.put("coverImage", String.valueOf(input.getOrDefault("coverImage", "")).trim());
+    card.put("clips", strings(input.get("clips")));
+    card.put("recordingUrl", String.valueOf(input.getOrDefault("recordingUrl", "")).trim());
+    card.put("groupName", String.valueOf(input.getOrDefault("groupName", "主播招聘群")).trim());
+    card.put("groupDescription", String.valueOf(input.getOrDefault("groupDescription", "免费招主播 · 免费进群")).trim());
+    return card;
+  }
+
+  private List<Map<String, Object>> anchorCards(String uid) {
+    return jdbc.queryForList("SELECT * FROM anchor_card WHERE owner_id=? AND status='PUBLIC' ORDER BY is_primary DESC,updated_at DESC", uid)
+      .stream().map(this::anchorCard).toList();
+  }
+
+  private Map<String, Object> primaryCardRow(String uid) {
+    return one("SELECT * FROM anchor_card WHERE owner_id=? AND status='PUBLIC' ORDER BY is_primary DESC,updated_at DESC", uid);
+  }
+
+  private Map<String, Object> anchorCard(Map<String, Object> row) {
+    Map<String, Object> card = object(row.get("CARD_DATA"));
+    card.put("id", text(row, "ID"));
+    card.put("isPrimary", booleanValue(row.get("IS_PRIMARY")));
+    card.put("createdAt", longValue(row.get("CREATED_AT")));
+    card.put("updatedAt", longValue(row.get("UPDATED_AT")));
+    return card;
+  }
+
+  private void migrateLegacyCard(Map<String, Object> userRow) {
+    if (userRow == null || !"anchor".equalsIgnoreCase(text(userRow, "ROLE"))) return;
+    String uid = text(userRow, "ID");
+    if (one("SELECT id FROM anchor_card WHERE owner_id=?", uid) != null || !"COMPLETE".equalsIgnoreCase(text(userRow, "CARD_STATUS"))) return;
+    Map<String, Object> legacyCard = object(userRow.get("CARD_DATA"));
+    if (legacyCard.isEmpty()) return;
+    long timestamp = now();
+    jdbc.update("INSERT INTO anchor_card(id,owner_id,card_data,is_primary,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)", id("card"), uid, json(legacyCard), true, "PUBLIC", timestamp, timestamp);
+  }
+
+  private void syncPrimaryCardToUser(String uid) {
+    var primary = primaryCardRow(uid);
+    if (primary == null) {
+      jdbc.update("UPDATE app_user SET card_status='INCOMPLETE',card_data='{}' WHERE id=?", uid);
+      return;
+    }
+    Map<String, Object> card = anchorCard(primary);
+    jdbc.update("UPDATE app_user SET nickname=?,city=?,categories=?,intro=?,experience_years=?,card_status='COMPLETE',card_data=? WHERE id=?",
+      String.valueOf(card.getOrDefault("stageName", "主播")).trim(), String.valueOf(card.getOrDefault("city", "")).trim(), json(strings(card.get("categories"))),
+      String.valueOf(card.getOrDefault("intro", "")).trim(), numberValue(card.getOrDefault("experienceYears", 0), 0), json(card), uid);
+  }
+
+  private int numberValue(Object value, int fallback) {
+    try { return Integer.parseInt(String.valueOf(value)); } catch (Exception error) { return fallback; }
+  }
+
+  private boolean booleanValue(Object value) {
+    if (value instanceof Boolean bool) return bool;
+    return Boolean.parseBoolean(String.valueOf(value));
+  }
+
+  public Map<String, Object> uploadMedia(String token, MultipartFile file) {
+    requireRole(token, "anchor");
+    if (file == null || file.isEmpty()) throw new BusinessException("请选择要上传的录屏或图片");
+    if (file.getSize() > 300L * 1024 * 1024) throw new BusinessException("上传文件不能超过 300MB");
+    String originalName = file.getOriginalFilename() == null ? "media" : file.getOriginalFilename();
+    String suffix = originalName.contains(".") ? originalName.substring(originalName.lastIndexOf('.')).toLowerCase() : "";
+    if (!List.of(".mp4", ".mov", ".m4v", ".webm", ".jpg", ".jpeg", ".png", ".webp").contains(suffix)) {
+      throw new BusinessException("仅支持常见视频或图片格式");
+    }
+    String fileName = id("media") + suffix;
+    Path root = Path.of("data", "uploads").toAbsolutePath().normalize();
+    Path target = root.resolve(fileName).normalize();
+    if (!target.startsWith(root)) throw new BusinessException("上传文件路径不正确");
+    try {
+      Files.createDirectories(root);
+      Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
+    } catch (Exception error) {
+      throw new BusinessException("媒体文件保存失败");
+    }
+    return Map.of("path", "/uploads/" + fileName, "size", file.getSize(), "contentType", file.getContentType() == null ? "application/octet-stream" : file.getContentType());
+  }
+
+  public List<Map<String, Object>> talents(String token, Map<String, String> filter) {
+    requireRole(token, "merchant");
+    String keyword = filter.getOrDefault("keyword", "").trim().toLowerCase();
+    String gender = filter.getOrDefault("gender", "").trim();
+    String category = filter.getOrDefault("category", "").trim().toLowerCase();
+    migrateLegacyCards();
+    return jdbc.queryForList("SELECT u.id AS user_id,u.nickname,u.avatar,u.verified,c.id AS card_id,c.card_data,c.is_primary,c.created_at AS card_created_at,c.updated_at AS card_updated_at FROM app_user u JOIN anchor_card c ON c.owner_id=u.id AND c.status='PUBLIC' AND c.is_primary=TRUE WHERE u.role='anchor' ORDER BY c.updated_at DESC")
+      .stream()
+      .map(this::publicTalent)
+      .filter(item -> {
+        Map<String, Object> card = object(item.get("anchorCard"));
+        String searchable = (String.valueOf(item.get("nickname")) + " " + card.values()).toLowerCase();
+        if (!keyword.isBlank() && !searchable.contains(keyword)) return false;
+        if (!gender.isBlank() && !gender.equals(String.valueOf(card.getOrDefault("gender", "")))) return false;
+        return category.isBlank() || searchable.contains(category);
+      })
+      .toList();
+  }
+
+  public Map<String, Object> talent(String token, String talentId) {
+    requireRole(token, "merchant");
+    migrateLegacyCard(one("SELECT * FROM app_user WHERE id=? AND role='anchor'", talentId));
+    var row = one("SELECT u.id AS user_id,u.nickname,u.avatar,u.verified,c.id AS card_id,c.card_data,c.is_primary,c.created_at AS card_created_at,c.updated_at AS card_updated_at FROM app_user u JOIN anchor_card c ON c.owner_id=u.id AND c.status='PUBLIC' AND c.is_primary=TRUE WHERE u.id=? AND u.role='anchor'", talentId);
+    if (row == null) throw new BusinessException("主播模卡不存在或暂未公开");
+    return publicTalent(row);
+  }
+
+  private Map<String, Object> publicTalent(Map<String, Object> row) {
+    Map<String, Object> card = object(row.get("CARD_DATA"));
+    card.put("id", text(row, "CARD_ID"));
+    card.put("isPrimary", booleanValue(row.get("IS_PRIMARY")));
+    card.put("createdAt", longValue(row.get("CARD_CREATED_AT")));
+    card.put("updatedAt", longValue(row.get("CARD_UPDATED_AT")));
+    card.putIfAbsent("stageName", text(row, "NICKNAME"));
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("id", text(row, "USER_ID"));
+    result.put("nickname", text(row, "NICKNAME"));
+    result.put("avatar", text(row, "AVATAR"));
+    result.put("verified", Boolean.TRUE.equals(row.get("VERIFIED")));
+    result.put("activeLabel", "3日内活跃");
+    result.put("anchorCard", card);
+    return result;
   }
 
   private void requireAnchorCard(String token) {
     requireRole(token, "anchor");
     String uid = userId(token);
-    var row = one("SELECT role,card_status FROM app_user WHERE id=?", uid);
-    if ("anchor".equalsIgnoreCase(text(row, "ROLE")) && !"COMPLETE".equalsIgnoreCase(text(row, "CARD_STATUS"))) {
+    migrateLegacyCard(one("SELECT * FROM app_user WHERE id=?", uid));
+    if (one("SELECT id FROM anchor_card WHERE owner_id=? AND status='PUBLIC'", uid) == null) {
       throw new BusinessException("请先完善主播模卡，再使用该功能");
     }
+  }
+
+  private void migrateLegacyCards() {
+    jdbc.queryForList("SELECT * FROM app_user WHERE role='anchor' AND card_status='COMPLETE'").forEach(this::migrateLegacyCard);
   }
 
   @Transactional

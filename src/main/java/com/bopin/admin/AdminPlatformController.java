@@ -13,10 +13,11 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1")
-@CrossOrigin(origins = {"http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:10086"})
+@CrossOrigin(origins = {"http://localhost:5174", "http://127.0.0.1:5174", "http://198.18.0.1:5174", "http://localhost:10086", "http://127.0.0.1:10086"})
 public class AdminPlatformController {
   private final AdminPlatformService service;
   public AdminPlatformController(AdminPlatformService service) { this.service = service; }
@@ -26,8 +27,16 @@ public class AdminPlatformController {
   @PostMapping("/auth/login") public ApiResult<Map<String,Object>> login(@RequestBody Map<String,Object> input) { return ApiResult.ok(service.login(input)); }
   @GetMapping("/users/me") public ApiResult<Map<String,Object>> profile(@RequestHeader(value="Authorization", required=false) String auth) { return ApiResult.ok(service.me(token(auth))); }
   @PutMapping("/users/me") public ApiResult<Map<String,Object>> updateProfile(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.updateProfile(token(auth),input)); }
+  @PostMapping("/users/me/cards") public ApiResult<Map<String,Object>> createCard(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.createAnchorCard(token(auth),input)); }
+  @PutMapping("/users/me/cards/{id}") public ApiResult<Map<String,Object>> updateCardById(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.updateAnchorCard(token(auth),id,input)); }
+  @DeleteMapping("/users/me/cards/{id}") public ApiResult<Map<String,Object>> deleteCard(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id) { return ApiResult.ok(service.deleteAnchorCard(token(auth),id)); }
+  @PostMapping("/users/me/cards/{id}/primary") public ApiResult<Map<String,Object>> setPrimaryCard(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id) { return ApiResult.ok(service.setPrimaryAnchorCard(token(auth),id)); }
+  // 旧版本客户端仍通过单张模卡地址保存，服务端会更新当前主展示模卡。
   @PutMapping("/users/me/card") public ApiResult<Map<String,Object>> updateCard(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.updateAnchorCard(token(auth),input)); }
+  @PostMapping("/uploads/media") public ApiResult<Map<String,Object>> uploadMedia(@RequestHeader(value="Authorization", required=false) String auth,@RequestParam("file") MultipartFile file) { return ApiResult.ok(service.uploadMedia(token(auth),file)); }
   @PostMapping("/users/me/verify") public ApiResult<Map<String,Object>> verify(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.verify(token(auth),input)); }
+  @GetMapping("/talents") public ApiResult<List<Map<String,Object>>> talents(@RequestHeader(value="Authorization", required=false) String auth,@RequestParam Map<String,String> filter) { return ApiResult.ok(service.talents(token(auth),filter)); }
+  @GetMapping("/talents/{id}") public ApiResult<Map<String,Object>> talent(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id) { return ApiResult.ok(service.talent(token(auth),id)); }
   @GetMapping("/notices") public ApiResult<List<Map<String,Object>>> notices(@RequestParam Map<String,String> filter) { return ApiResult.ok(service.notices(filter)); }
   @GetMapping("/notices/{id}") public ApiResult<Map<String,Object>> notice(@PathVariable String id) { return ApiResult.ok(service.noticeById(id)); }
   @PostMapping("/notices") public ApiResult<Map<String,Object>> createNotice(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.createNotice(token(auth),input)); }

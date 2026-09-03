@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/admin")
-@CrossOrigin(origins = {"http://localhost:5174", "http://127.0.0.1:5174"})
+@CrossOrigin(origins = {"http://localhost:5174", "http://127.0.0.1:5174", "http://198.18.0.1:5174", "http://localhost:10086", "http://127.0.0.1:10086"})
 public class AdminController {
   private final AdminPlatformService service;
   public AdminController(AdminPlatformService service) { this.service = service; }

@@ -12,6 +12,10 @@ spring:
     init:
       mode: always
       encoding: UTF-8
+  servlet:
+    multipart:
+      max-file-size: 300MB
+      max-request-size: 300MB
 management:
   endpoints:
     web:

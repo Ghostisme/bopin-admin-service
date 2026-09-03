@@ -19,6 +19,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_app_user_role_phone ON app_user(role, phone
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS card_status VARCHAR(24) NOT NULL DEFAULT 'INCOMPLETE';
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS card_data CLOB NOT NULL DEFAULT '{}';
 
+-- 模卡是主播可独立维护的作品集合；企业端只读取其中一张主展示模卡。
+CREATE TABLE IF NOT EXISTS anchor_card (
+  id VARCHAR(64) PRIMARY KEY,
+  owner_id VARCHAR(64) NOT NULL,
+  card_data CLOB NOT NULL,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  status VARCHAR(24) NOT NULL DEFAULT 'PUBLIC',
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_anchor_card_owner ON anchor_card(owner_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS ix_anchor_card_primary ON anchor_card(owner_id, is_primary, status);
+
 CREATE TABLE IF NOT EXISTS auth_session (
   token VARCHAR(100) PRIMARY KEY,
   user_id VARCHAR(64) NOT NULL,

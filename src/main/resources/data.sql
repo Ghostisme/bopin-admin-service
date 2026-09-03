@@ -4,6 +4,15 @@ VALUES ('u_demo', 'anchor', '米粒', '', '138****6608', TRUE, '杭州', '["live
 MERGE INTO app_user (id, role, nickname, avatar, phone, verified, city, categories, intro, experience_years, card_status, card_data, created_at) KEY(id)
 VALUES ('u_merchant_demo', 'merchant', '星耀文化传媒', '', '139****5200', TRUE, '杭州', '[]', '杭州星耀文化传媒招聘中心', 0, 'INCOMPLETE', '{}', 1788336000000);
 
+MERGE INTO app_user (id, role, nickname, avatar, phone, verified, city, categories, intro, experience_years, card_status, card_data, created_at) KEY(id)
+VALUES ('u_anchor_aya', 'anchor', '安安', '', '138****1036', TRUE, '上海', '["美妆","家清"]', '镜头表现自然，擅长美妆护肤与家清产品讲解，注重真实体验和转化。', 2, 'COMPLETE', '{"stageName":"安安","categories":["美妆","家清"],"city":"上海","intro":"镜头表现自然，擅长美妆护肤与家清产品讲解，注重真实体验和转化。","experienceYears":2,"expectedSalary":"100-200元/小时","availableTime":"工作日及周末可排班","age":23,"gender":"女","height":"166cm","weight":"47kg","shoeSize":"37码","education":"本科及以上","expectedCities":["上海","杭州"],"acceptShift":false,"experienceCategory":"美妆护肤 / 个护家清","accountName":"合****","peakGmv":"30万","liveYears":2,"advantage":"亲和力强、学习能力快，能够快速理解产品卖点","groupName":"上海主播招聘群","groupDescription":"免费招主播 · 免费进群"}', 1788335900000);
+
+MERGE INTO app_user (id, role, nickname, avatar, phone, verified, city, categories, intro, experience_years, card_status, card_data, created_at) KEY(id)
+VALUES ('u_anchor_yang', 'anchor', '杨一', '', '138****2718', TRUE, '杭州', '["服饰","保健"]', '男装与健康品类主播，控场稳定，能够独立完成脚本梳理和直播复盘。', 2, 'COMPLETE', '{"stageName":"杨一","categories":["服饰","保健"],"city":"杭州","intro":"男装与健康品类主播，控场稳定，能够独立完成脚本梳理和直播复盘。","experienceYears":2,"expectedSalary":"10-20K/月","availableTime":"全职，可排班","age":26,"gender":"男","height":"182cm","weight":"68kg","shoeSize":"43码","education":"大专及以上","expectedCities":["杭州"],"acceptShift":true,"experienceCategory":"服饰 / 家电 / 保健","accountName":"播****","peakGmv":"42万","liveYears":2,"advantage":"亲和力强、学习能力快，产品拆解和现场应变能力好","groupName":"杭州主播招聘群","groupDescription":"优质岗位 · 免费进群"}', 1788335800000);
+
+MERGE INTO app_user (id, role, nickname, avatar, phone, verified, city, categories, intro, experience_years, card_status, card_data, created_at) KEY(id)
+VALUES ('u_anchor_jia', 'anchor', '加加', '', '138****4482', TRUE, '厦门', '["食品","本地生活"]', '擅长食品和本地生活直播，表达有感染力，熟悉短视频预热与直播承接。', 2, 'COMPLETE', '{"stageName":"加加","categories":["食品","本地生活"],"city":"厦门","intro":"擅长食品和本地生活直播，表达有感染力，熟悉短视频预热与直播承接。","experienceYears":2,"expectedSalary":"100-200元/小时","availableTime":"档期可沟通","age":21,"gender":"女","height":"163cm","weight":"48kg","shoeSize":"37码","education":"大专及以上","expectedCities":["厦门","泉州"],"acceptShift":false,"experienceCategory":"食品 / 本地生活","accountName":"加****","peakGmv":"18万","liveYears":2,"advantage":"表达自然，擅长现场互动和生活化卖点呈现","groupName":"厦门主播招聘群","groupDescription":"本地优选 · 免费进群"}', 1788335700000);
+
 MERGE INTO user_wallet (user_id, card_balance, member_level, ai_quota, updated_at) KEY(user_id)
 VALUES ('u_demo', 8, 'PRO', 20, 1788336000000);
 
