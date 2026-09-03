@@ -91,4 +91,6 @@ public class AdminPlatformController {
   @GetMapping("/admin/anchor-cards") public ApiResult<List<Map<String,Object>>> anchorCards() { return ApiResult.ok(service.adminAnchorCards()); }
   @GetMapping("/admin/service-access") public ApiResult<List<Map<String,Object>>> serviceAccessAdmin() { return ApiResult.ok(service.adminServiceAccess()); }
   @PutMapping("/admin/service-access/{userId}/{featureKey}") public ApiResult<Map<String,Object>> updateServiceAccess(@PathVariable String userId,@PathVariable String featureKey,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.updateServiceAccess(userId,featureKey,input)); }
+  @GetMapping("/admin/settings") public ApiResult<Map<String,Object>> adminSettings() { return ApiResult.ok(service.adminSettings()); }
+  @PutMapping("/admin/settings/{key}") public ApiResult<Map<String,Object>> updateAdminSetting(@PathVariable String key,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.updateAdminSetting(key, input.get("value"))); }
 }

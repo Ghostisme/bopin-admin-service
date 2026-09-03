@@ -86,6 +86,12 @@ CREATE TABLE IF NOT EXISTS withdrawal_request (
   created_at BIGINT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS platform_setting (
+  setting_key VARCHAR(64) PRIMARY KEY,
+  setting_value VARCHAR(255) NOT NULL,
+  updated_at BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS job_notice (
   id VARCHAR(64) PRIMARY KEY,
   title VARCHAR(160) NOT NULL,

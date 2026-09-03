@@ -762,6 +762,36 @@ public class AdminPlatformService {
     );
   }
 
+  private static final Map<String, String> DEFAULT_ADMIN_SETTINGS = Map.of(
+    "noticeAutoReview", "true",
+    "highIntentReminder", "true",
+    "weeklyReport", "false"
+  );
+
+  private void ensureAdminSettings() {
+    long timestamp = now();
+    DEFAULT_ADMIN_SETTINGS.forEach((key, value) -> {
+      if (one("SELECT setting_key FROM platform_setting WHERE setting_key=?", key) == null) {
+        jdbc.update("INSERT INTO platform_setting(setting_key,setting_value,updated_at) VALUES(?,?,?)", key, value, timestamp);
+      }
+    });
+  }
+
+  public Map<String, Object> adminSettings() {
+    ensureAdminSettings();
+    Map<String, Object> result = new LinkedHashMap<>();
+    jdbc.queryForList("SELECT setting_key,setting_value FROM platform_setting ORDER BY setting_key").forEach(row -> result.put(text(row, "SETTING_KEY"), booleanValue(row.get("SETTING_VALUE"))));
+    return result;
+  }
+
+  @Transactional
+  public Map<String, Object> updateAdminSetting(String key, Object value) {
+    if (!DEFAULT_ADMIN_SETTINGS.containsKey(key)) throw new BusinessException("系统设置不存在");
+    ensureAdminSettings();
+    jdbc.update("UPDATE platform_setting SET setting_value=?,updated_at=? WHERE setting_key=?", booleanValue(value) ? "true" : "false", now(), key);
+    return adminSettings();
+  }
+
   public Map<String, Object> adminExport() {
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("anchors", jdbc.queryForList("SELECT id,nickname,verified,city,categories,card_status,card_data,created_at FROM app_user WHERE role='anchor' ORDER BY created_at DESC"));
@@ -771,6 +801,9 @@ public class AdminPlatformService {
     result.put("contactUnlocks", jdbc.queryForList("SELECT * FROM contact_unlock ORDER BY created_at DESC"));
     result.put("paidServiceOrders", jdbc.queryForList("SELECT * FROM paid_service_order ORDER BY created_at DESC"));
     result.put("withdrawalRequests", jdbc.queryForList("SELECT * FROM withdrawal_request ORDER BY created_at DESC"));
+    result.put("conversations", conversations());
+    result.put("chatMessages", jdbc.queryForList("SELECT id,conversation_id,content,message_type,from_me,created_at FROM chat_message ORDER BY created_at DESC"));
+    result.put("settings", adminSettings());
     result.put("membershipOrders", jdbc.queryForList("SELECT * FROM membership_order ORDER BY created_at DESC"));
     result.put("aiScripts", jdbc.queryForList("SELECT id,user_id,scene,product,tone,created_at FROM ai_script ORDER BY created_at DESC"));
     result.put("contracts", contracts());
