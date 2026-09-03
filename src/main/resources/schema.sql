@@ -47,6 +47,45 @@ CREATE TABLE IF NOT EXISTS user_wallet (
   updated_at BIGINT NOT NULL
 );
 
+-- 主播收费服务的账号级授权。默认开放且不限次数/有效期，后续由后台逐账号收紧。
+CREATE TABLE IF NOT EXISTS account_service_access (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  feature_key VARCHAR(64) NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  count_limited BOOLEAN NOT NULL DEFAULT FALSE,
+  remaining_count INT NOT NULL DEFAULT 0,
+  expiry_limited BOOLEAN NOT NULL DEFAULT FALSE,
+  expires_at BIGINT,
+  unit_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  fee_rate DECIMAL(8,4) NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL,
+  UNIQUE(user_id, feature_key)
+);
+
+CREATE INDEX IF NOT EXISTS ix_account_service_access_user ON account_service_access(user_id, feature_key);
+
+CREATE TABLE IF NOT EXISTS paid_service_order (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  feature_key VARCHAR(64) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL,
+  metadata CLOB NOT NULL DEFAULT '{}',
+  created_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS withdrawal_request (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  gross_amount DECIMAL(14,2) NOT NULL,
+  service_fee DECIMAL(14,2) NOT NULL,
+  net_amount DECIMAL(14,2) NOT NULL,
+  fee_rate DECIMAL(8,4) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS job_notice (
   id VARCHAR(64) PRIMARY KEY,
   title VARCHAR(160) NOT NULL,

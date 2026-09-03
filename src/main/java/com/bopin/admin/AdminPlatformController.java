@@ -26,9 +26,12 @@ public class AdminPlatformController {
   @PostMapping("/auth/register") public ApiResult<Map<String,Object>> register(@RequestBody Map<String,Object> input) { return ApiResult.ok(service.register(input)); }
   @PostMapping("/auth/login") public ApiResult<Map<String,Object>> login(@RequestBody Map<String,Object> input) { return ApiResult.ok(service.login(input)); }
   @GetMapping("/users/me") public ApiResult<Map<String,Object>> profile(@RequestHeader(value="Authorization", required=false) String auth) { return ApiResult.ok(service.me(token(auth))); }
+  @GetMapping("/users/me/service-access") public ApiResult<List<Map<String,Object>>> serviceAccess(@RequestHeader(value="Authorization", required=false) String auth) { return ApiResult.ok(service.serviceAccess(token(auth))); }
   @PutMapping("/users/me") public ApiResult<Map<String,Object>> updateProfile(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.updateProfile(token(auth),input)); }
   @PostMapping("/users/me/cards") public ApiResult<Map<String,Object>> createCard(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.createAnchorCard(token(auth),input)); }
   @PutMapping("/users/me/cards/{id}") public ApiResult<Map<String,Object>> updateCardById(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.updateAnchorCard(token(auth),id,input)); }
+  @PostMapping("/users/me/cards/{id}/optimize") public ApiResult<Map<String,Object>> optimizeCard(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.optimizeAnchorCard(token(auth),id,input)); }
+  @PostMapping("/users/me/cards/{id}/exposure") public ApiResult<Map<String,Object>> exposeCard(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id) { return ApiResult.ok(service.exposeAnchorCard(token(auth),id)); }
   @DeleteMapping("/users/me/cards/{id}") public ApiResult<Map<String,Object>> deleteCard(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id) { return ApiResult.ok(service.deleteAnchorCard(token(auth),id)); }
   @PostMapping("/users/me/cards/{id}/primary") public ApiResult<Map<String,Object>> setPrimaryCard(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id) { return ApiResult.ok(service.setPrimaryAnchorCard(token(auth),id)); }
   // 旧版本客户端仍通过单张模卡地址保存，服务端会更新当前主展示模卡。
@@ -48,6 +51,7 @@ public class AdminPlatformController {
   @GetMapping("/wallet") public ApiResult<Map<String,Object>> wallet(@RequestHeader(value="Authorization", required=false) String auth) { return ApiResult.ok(service.wallet(token(auth))); }
   @PostMapping("/wallet/topup") public ApiResult<Map<String,Object>> topup(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.topup(token(auth),input)); }
   @PostMapping("/membership/orders") public ApiResult<Map<String,Object>> membership(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.membership(token(auth),input)); }
+  @PostMapping("/users/me/withdraw") public ApiResult<Map<String,Object>> withdraw(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.withdraw(token(auth),input)); }
 
   @PostMapping("/ai/scripts") public ApiResult<Map<String,Object>> aiScript(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.aiScript(token(auth),input)); }
   @GetMapping("/ai/scripts") public ApiResult<List<Map<String,Object>>> aiScripts(@RequestHeader(value="Authorization", required=false) String auth) { return ApiResult.ok(service.aiScripts(token(auth))); }
@@ -85,4 +89,6 @@ public class AdminPlatformController {
   @GetMapping("/admin/overview") public ApiResult<Map<String,Object>> overview() { return ApiResult.ok(service.adminOverview()); }
   @GetMapping("/admin/export") public ApiResult<Map<String,Object>> export() { return ApiResult.ok(service.adminExport()); }
   @GetMapping("/admin/anchor-cards") public ApiResult<List<Map<String,Object>>> anchorCards() { return ApiResult.ok(service.adminAnchorCards()); }
+  @GetMapping("/admin/service-access") public ApiResult<List<Map<String,Object>>> serviceAccessAdmin() { return ApiResult.ok(service.adminServiceAccess()); }
+  @PutMapping("/admin/service-access/{userId}/{featureKey}") public ApiResult<Map<String,Object>> updateServiceAccess(@PathVariable String userId,@PathVariable String featureKey,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.updateServiceAccess(userId,featureKey,input)); }
 }

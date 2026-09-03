@@ -23,6 +23,14 @@ public class AdminPlatformService {
   private final JdbcTemplate jdbc;
   private final ObjectMapper mapper;
 
+  private static final List<Map<String, Object>> SERVICE_FEATURES = List.of(
+    Map.of("key", "CARD_OPTIMIZE", "label", "模卡后期优化", "unitPrice", new BigDecimal("9.90"), "feeRate", BigDecimal.ZERO),
+    Map.of("key", "CARD_EXPOSURE", "label", "道具曝光", "unitPrice", new BigDecimal("19.90"), "feeRate", BigDecimal.ZERO),
+    Map.of("key", "AI_SCRIPT", "label", "AI 脚本协助", "unitPrice", new BigDecimal("3.90"), "feeRate", BigDecimal.ZERO),
+    Map.of("key", "ANCHOR_WITHDRAW", "label", "主播提现", "unitPrice", BigDecimal.ZERO, "feeRate", new BigDecimal("0.0600")),
+    Map.of("key", "CONTACT_UNLOCK", "label", "联系方式解锁", "unitPrice", BigDecimal.ONE, "feeRate", BigDecimal.ZERO)
+  );
+
   public AdminPlatformService(JdbcTemplate jdbc, ObjectMapper mapper) {
     this.jdbc = jdbc;
     this.mapper = mapper;
@@ -66,6 +74,79 @@ public class AdminPlatformService {
   private long longValue(Object value) {
     if (value instanceof Number number) return number.longValue();
     try { return Long.parseLong(String.valueOf(value)); } catch (Exception error) { return 0L; }
+  }
+
+  private BigDecimal decimalValue(Object value, BigDecimal fallback) {
+    if (value == null) return fallback;
+    try { return new BigDecimal(String.valueOf(value)); } catch (Exception error) { return fallback; }
+  }
+
+  private Map<String, Object> featureDefinition(String featureKey) {
+    return SERVICE_FEATURES.stream().filter(item -> featureKey.equals(item.get("key"))).findFirst()
+      .orElseThrow(() -> new BusinessException("服务类型不存在"));
+  }
+
+  /** 为历史账号补齐默认服务配置，默认全部开放且不限次数/有效期。 */
+  private void ensureServiceAccess(String uid) {
+    long timestamp = now();
+    SERVICE_FEATURES.forEach(feature -> {
+      if (one("SELECT id FROM account_service_access WHERE user_id=? AND feature_key=?", uid, feature.get("key")) == null) {
+        jdbc.update("INSERT INTO account_service_access(id,user_id,feature_key,enabled,count_limited,remaining_count,expiry_limited,expires_at,unit_price,fee_rate,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+          id("access"), uid, feature.get("key"), true, false, 0, false, null, feature.get("unitPrice"), feature.get("feeRate"), timestamp);
+      }
+    });
+  }
+
+  private Map<String, Object> serviceAccessRecord(Map<String, Object> row) {
+    long expiresAt = row.get("EXPIRES_AT") == null ? 0L : longValue(row.get("EXPIRES_AT"));
+    boolean enabled = booleanValue(row.get("ENABLED"));
+    boolean expiryLimited = booleanValue(row.get("EXPIRY_LIMITED"));
+    boolean countLimited = booleanValue(row.get("COUNT_LIMITED"));
+    int remainingCount = number(row, "REMAINING_COUNT");
+    boolean active = enabled && (!expiryLimited || expiresAt > now()) && (!countLimited || remainingCount > 0);
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("id", text(row, "ID"));
+    result.put("userId", text(row, "USER_ID"));
+    result.put("featureKey", text(row, "FEATURE_KEY"));
+    result.put("label", text(row, "LABEL"));
+    result.put("enabled", enabled);
+    result.put("countLimited", countLimited);
+    result.put("remainingCount", remainingCount);
+    result.put("expiryLimited", expiryLimited);
+    result.put("expiresAt", row.get("EXPIRES_AT"));
+    result.put("unitPrice", decimalValue(row.get("UNIT_PRICE"), BigDecimal.ZERO));
+    result.put("feeRate", decimalValue(row.get("FEE_RATE"), BigDecimal.ZERO));
+    result.put("active", active);
+    return result;
+  }
+
+  private List<Map<String, Object>> serviceAccessForUser(String uid) {
+    ensureServiceAccess(uid);
+    return jdbc.queryForList("SELECT * FROM account_service_access WHERE user_id=? ORDER BY feature_key", uid)
+      .stream().map(row -> {
+        Map<String, Object> enriched = new LinkedHashMap<>(row);
+        enriched.put("LABEL", featureDefinition(text(row, "FEATURE_KEY")).get("label"));
+        return serviceAccessRecord(enriched);
+      }).toList();
+  }
+
+  private Map<String, Object> requireFeature(String token, String featureKey) {
+    requireRole(token, "anchor");
+    String uid = userId(token);
+    ensureServiceAccess(uid);
+    Map<String, Object> row = one("SELECT * FROM account_service_access WHERE user_id=? AND feature_key=?", uid, featureKey);
+    if (row != null) {
+      row = new LinkedHashMap<>(row);
+      row.put("LABEL", featureDefinition(featureKey).get("label"));
+    }
+    if (row == null || !booleanValue(row.get("ENABLED"))) throw new BusinessException("该服务暂未开放");
+    if (booleanValue(row.get("EXPIRY_LIMITED")) && (row.get("EXPIRES_AT") == null || longValue(row.get("EXPIRES_AT")) <= now())) throw new BusinessException("该服务已过期");
+    if (booleanValue(row.get("COUNT_LIMITED")) && number(row, "REMAINING_COUNT") <= 0) throw new BusinessException("该服务可用次数已用完");
+    return row;
+  }
+
+  private void consumeFeature(String uid, String featureKey) {
+    jdbc.update("UPDATE account_service_access SET remaining_count=remaining_count-1,updated_at=? WHERE user_id=? AND feature_key=? AND count_limited=TRUE AND remaining_count>0", now(), uid, featureKey);
   }
 
   @Transactional
@@ -124,11 +205,17 @@ public class AdminPlatformService {
     result.put("anchorCard", primaryCard);
     result.put("anchorCards", cards);
     result.put("cardCompleted", cardCompleted);
+    result.put("serviceAccess", anchor ? serviceAccessForUser(uid) : List.of());
     return result;
   }
 
   public Map<String, Object> me(String token) {
     return profile(userId(token));
+  }
+
+  public List<Map<String, Object>> serviceAccess(String token) {
+    requireRole(token, "anchor");
+    return serviceAccessForUser(userId(token));
   }
 
   @Transactional
@@ -161,6 +248,53 @@ public class AdminPlatformService {
   public Map<String, Object> updateAnchorCard(String token, String cardId, Map<String, Object> input) {
     requireRole(token, "anchor");
     return saveAnchorCard(userId(token), cardId, input);
+  }
+
+  @Transactional
+  public Map<String, Object> optimizeAnchorCard(String token, String cardId, Map<String, Object> input) {
+    Map<String, Object> access = requireFeature(token, "CARD_OPTIMIZE");
+    String uid = userId(token);
+    var existing = one("SELECT * FROM anchor_card WHERE id=? AND owner_id=? AND status='PUBLIC'", cardId, uid);
+    if (existing == null) throw new BusinessException("模卡不存在或无权操作");
+    Map<String, Object> card = anchorCard(existing);
+    if (input.containsKey("intro")) card.put("intro", String.valueOf(input.getOrDefault("intro", "")).trim());
+    if (input.containsKey("advantage")) card.put("advantage", String.valueOf(input.getOrDefault("advantage", "")).trim());
+    if (input.containsKey("stageName")) card.put("stageName", String.valueOf(input.getOrDefault("stageName", "")).trim());
+    if (input.containsKey("categories")) card.put("categories", strings(input.get("categories")));
+    String advantage = String.valueOf(card.getOrDefault("advantage", "")).trim();
+    if (advantage.length() > 200) throw new BusinessException("个人优势介绍不能超过200字");
+    jdbc.update("UPDATE anchor_card SET card_data=?,updated_at=? WHERE id=? AND owner_id=?", json(card), now(), cardId, uid);
+    consumeFeature(uid, "CARD_OPTIMIZE");
+    String orderId = id("svc");
+    jdbc.update("INSERT INTO paid_service_order(id,user_id,feature_key,amount,status,metadata,created_at) VALUES(?,?,?,?,?,?,?)", orderId, uid, "CARD_OPTIMIZE", decimalValue(access.get("UNIT_PRICE"), BigDecimal.ZERO), "PAID_SANDBOX", json(input), now());
+    syncPrimaryCardToUser(uid);
+    return Map.of("orderId", orderId, "status", "PAID_SANDBOX", "card", profile(uid).get("anchorCard"));
+  }
+
+  @Transactional
+  public Map<String, Object> exposeAnchorCard(String token, String cardId) {
+    Map<String, Object> access = requireFeature(token, "CARD_EXPOSURE");
+    String uid = userId(token);
+    if (one("SELECT id FROM anchor_card WHERE id=? AND owner_id=? AND status='PUBLIC'", cardId, uid) == null) throw new BusinessException("模卡不存在或无权操作");
+    String orderId = id("svc");
+    jdbc.update("INSERT INTO paid_service_order(id,user_id,feature_key,amount,status,metadata,created_at) VALUES(?,?,?,?,?,?,?)", orderId, uid, "CARD_EXPOSURE", decimalValue(access.get("UNIT_PRICE"), BigDecimal.ZERO), "PAID_SANDBOX", json(Map.of("cardId", cardId)), now());
+    consumeFeature(uid, "CARD_EXPOSURE");
+    return Map.of("orderId", orderId, "cardId", cardId, "status", "PAID_SANDBOX", "access", serviceAccessForUser(uid));
+  }
+
+  @Transactional
+  public Map<String, Object> withdraw(String token, Map<String, Object> input) {
+    Map<String, Object> access = requireFeature(token, "ANCHOR_WITHDRAW");
+    String uid = userId(token);
+    BigDecimal gross = decimalValue(input.get("grossAmount"), BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    if (gross.compareTo(BigDecimal.ZERO) <= 0) throw new BusinessException("提现金额必须大于0");
+    BigDecimal feeRate = decimalValue(access.get("FEE_RATE"), BigDecimal.ZERO);
+    BigDecimal fee = gross.multiply(feeRate).setScale(2, RoundingMode.HALF_UP);
+    BigDecimal net = gross.subtract(fee).setScale(2, RoundingMode.HALF_UP);
+    String requestId = id("withdraw");
+    jdbc.update("INSERT INTO withdrawal_request(id,user_id,gross_amount,service_fee,net_amount,fee_rate,status,created_at) VALUES(?,?,?,?,?,?,?,?)", requestId, uid, gross, fee, net, feeRate, "PENDING_REVIEW", now());
+    consumeFeature(uid, "ANCHOR_WITHDRAW");
+    return Map.of("id", requestId, "grossAmount", gross, "serviceFee", fee, "netAmount", net, "feeRate", feeRate, "status", "PENDING_REVIEW");
   }
 
   @Transactional
@@ -515,19 +649,23 @@ public class AdminPlatformService {
 
   @Transactional
   public Map<String, Object> unlock(String token, String noticeId) {
+    Map<String, Object> access = requireFeature(token, "CONTACT_UNLOCK");
     requireAnchorCard(token); String uid = userId(token); var existing = one("SELECT id FROM contact_unlock WHERE user_id=? AND job_id=?", uid, noticeId); if (existing != null) return Map.of("unlocked", true, "already", true);
+    var row = one("SELECT publisher_name,publisher_id FROM job_notice WHERE id=?", noticeId); if (row == null) throw new BusinessException("通告不存在");
     var wallet = one("SELECT card_balance FROM user_wallet WHERE user_id=?", uid); if (number(wallet, "CARD_BALANCE") < 1) throw new BusinessException("道具卡余额不足，请先补充");
     jdbc.update("UPDATE user_wallet SET card_balance=card_balance-1,updated_at=? WHERE user_id=?", now(), uid); jdbc.update("INSERT INTO contact_unlock(id,user_id,job_id,cost,created_at) VALUES(?,?,?,?,?)", id("unlock"), uid, noticeId, 1, now());
-    var row = one("SELECT publisher_name,publisher_id FROM job_notice WHERE id=?", noticeId); if (row == null) throw new BusinessException("通告不存在");
+    consumeFeature(uid, "CONTACT_UNLOCK");
     return Map.of("unlocked", true, "company", text(row, "PUBLISHER_NAME"), "publisherId", text(row, "PUBLISHER_ID"), "wallet", wallet(token));
   }
 
   @Transactional
   public Map<String, Object> aiScript(String token, Map<String, Object> input) {
+    requireFeature(token, "AI_SCRIPT");
     requireAnchorCard(token); String uid = userId(token); var wallet = one("SELECT ai_quota FROM user_wallet WHERE user_id=?", uid); if (number(wallet, "AI_QUOTA") < 1) throw new BusinessException("AI 额度不足，请升级会员");
     String product = String.valueOf(input.getOrDefault("product", "直播商品")); String scene = String.valueOf(input.getOrDefault("scene", "开场介绍")); String tone = String.valueOf(input.getOrDefault("tone", "亲和专业"));
     String content = "【" + scene + "】\n姐妹们，今天给大家分享" + product + "。适合想要快速上手、追求品质和性价比的朋友，喜欢就先收藏，直播间还有专属福利。";
     jdbc.update("UPDATE user_wallet SET ai_quota=ai_quota-1,updated_at=? WHERE user_id=?", now(), uid); String sid = id("ai"); jdbc.update("INSERT INTO ai_script(id,user_id,scene,product,tone,content,created_at) VALUES(?,?,?,?,?,?,?)", sid, uid, scene, product, tone, content, now());
+    consumeFeature(uid, "AI_SCRIPT");
     return Map.of("id", sid, "scene", scene, "product", product, "tone", tone, "content", content, "remainingQuota", number(one("SELECT ai_quota FROM user_wallet WHERE user_id=?", uid), "AI_QUOTA"), "provider", "LOCAL_SANDBOX");
   }
 
@@ -625,6 +763,7 @@ public class AdminPlatformService {
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("anchors", jdbc.queryForList("SELECT id,nickname,verified,city,categories,card_status,card_data,created_at FROM app_user WHERE role='anchor' ORDER BY created_at DESC"));
     result.put("anchorCards", adminAnchorCards());
+    result.put("serviceAccess", adminServiceAccess());
     result.put("notices", notices(Map.of()));
     result.put("contactUnlocks", jdbc.queryForList("SELECT * FROM contact_unlock ORDER BY created_at DESC"));
     result.put("membershipOrders", jdbc.queryForList("SELECT * FROM membership_order ORDER BY created_at DESC"));
@@ -643,6 +782,42 @@ public class AdminPlatformService {
     result.put("eorRequests", eorRequests());
     result.put("overview", adminOverview());
     return result;
+  }
+
+  /** 管理后台按主播账号查看和调整收费服务的开关、次数、有效期及价格。 */
+  public List<Map<String, Object>> adminServiceAccess() {
+    migrateLegacyCards();
+    return jdbc.queryForList("SELECT id,nickname,phone,verified FROM app_user WHERE role='anchor' ORDER BY created_at DESC")
+      .stream().map(userRow -> {
+        String uid = text(userRow, "ID");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", uid);
+        result.put("nickname", text(userRow, "NICKNAME"));
+        result.put("phone", text(userRow, "PHONE"));
+        result.put("verified", booleanValue(userRow.get("VERIFIED")));
+        result.put("services", serviceAccessForUser(uid));
+        return result;
+      }).toList();
+  }
+
+  @Transactional
+  public Map<String, Object> updateServiceAccess(String userId, String featureKey, Map<String, Object> input) {
+    featureDefinition(featureKey);
+    var target = one("SELECT id FROM app_user WHERE id=? AND role='anchor'", userId);
+    if (target == null) throw new BusinessException("主播账号不存在");
+    ensureServiceAccess(userId);
+    var current = one("SELECT * FROM account_service_access WHERE user_id=? AND feature_key=?", userId, featureKey);
+    boolean enabled = input.containsKey("enabled") ? booleanValue(input.get("enabled")) : booleanValue(current.get("ENABLED"));
+    boolean countLimited = input.containsKey("countLimited") ? booleanValue(input.get("countLimited")) : booleanValue(current.get("COUNT_LIMITED"));
+    int remainingCount = input.containsKey("remainingCount") ? Math.max(0, numberValue(input.get("remainingCount"), 0)) : number(current, "REMAINING_COUNT");
+    boolean expiryLimited = input.containsKey("expiryLimited") ? booleanValue(input.get("expiryLimited")) : booleanValue(current.get("EXPIRY_LIMITED"));
+    Object expiresAt = current.get("EXPIRES_AT");
+    if (input.containsKey("expiresAt")) expiresAt = input.get("expiresAt") == null || String.valueOf(input.get("expiresAt")).isBlank() ? null : longValue(input.get("expiresAt"));
+    BigDecimal unitPrice = input.containsKey("unitPrice") ? decimalValue(input.get("unitPrice"), BigDecimal.ZERO) : decimalValue(current.get("UNIT_PRICE"), BigDecimal.ZERO);
+    BigDecimal feeRate = input.containsKey("feeRate") ? decimalValue(input.get("feeRate"), BigDecimal.ZERO) : decimalValue(current.get("FEE_RATE"), BigDecimal.ZERO);
+    if (unitPrice.compareTo(BigDecimal.ZERO) < 0 || feeRate.compareTo(BigDecimal.ZERO) < 0 || feeRate.compareTo(BigDecimal.ONE) > 0) throw new BusinessException("价格或服务费率不正确");
+    jdbc.update("UPDATE account_service_access SET enabled=?,count_limited=?,remaining_count=?,expiry_limited=?,expires_at=?,unit_price=?,fee_rate=?,updated_at=? WHERE user_id=? AND feature_key=?", enabled, countLimited, remainingCount, expiryLimited, expiresAt, unitPrice, feeRate, now(), userId, featureKey);
+    return serviceAccessForUser(userId).stream().filter(item -> featureKey.equals(item.get("featureKey"))).findFirst().orElseThrow(() -> new BusinessException("服务配置不存在"));
   }
 
   /** 管理后台查看主播的全部公开模卡，而不是只看主模卡摘要。 */
