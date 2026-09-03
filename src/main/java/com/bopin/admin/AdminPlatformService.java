@@ -660,13 +660,16 @@ public class AdminPlatformService {
 
   @Transactional
   public Map<String, Object> aiScript(String token, Map<String, Object> input) {
-    requireFeature(token, "AI_SCRIPT");
+    Map<String, Object> access = requireFeature(token, "AI_SCRIPT");
     requireAnchorCard(token); String uid = userId(token); var wallet = one("SELECT ai_quota FROM user_wallet WHERE user_id=?", uid); if (number(wallet, "AI_QUOTA") < 1) throw new BusinessException("AI 额度不足，请升级会员");
     String product = String.valueOf(input.getOrDefault("product", "直播商品")); String scene = String.valueOf(input.getOrDefault("scene", "开场介绍")); String tone = String.valueOf(input.getOrDefault("tone", "亲和专业"));
     String content = "【" + scene + "】\n姐妹们，今天给大家分享" + product + "。适合想要快速上手、追求品质和性价比的朋友，喜欢就先收藏，直播间还有专属福利。";
     jdbc.update("UPDATE user_wallet SET ai_quota=ai_quota-1,updated_at=? WHERE user_id=?", now(), uid); String sid = id("ai"); jdbc.update("INSERT INTO ai_script(id,user_id,scene,product,tone,content,created_at) VALUES(?,?,?,?,?,?,?)", sid, uid, scene, product, tone, content, now());
     consumeFeature(uid, "AI_SCRIPT");
-    return Map.of("id", sid, "scene", scene, "product", product, "tone", tone, "content", content, "remainingQuota", number(one("SELECT ai_quota FROM user_wallet WHERE user_id=?", uid), "AI_QUOTA"), "provider", "LOCAL_SANDBOX");
+    String orderId = id("svc");
+    BigDecimal amount = decimalValue(access.get("UNIT_PRICE"), BigDecimal.ZERO);
+    jdbc.update("INSERT INTO paid_service_order(id,user_id,feature_key,amount,status,metadata,created_at) VALUES(?,?,?,?,?,?,?)", orderId, uid, "AI_SCRIPT", amount, "PAID_SANDBOX", json(Map.of("scriptId", sid, "scene", scene, "product", product)), now());
+    return Map.of("id", sid, "orderId", orderId, "amount", amount, "scene", scene, "product", product, "tone", tone, "content", content, "remainingQuota", number(one("SELECT ai_quota FROM user_wallet WHERE user_id=?", uid), "AI_QUOTA"), "provider", "LOCAL_SANDBOX");
   }
 
   public List<Map<String, Object>> aiScripts(String token) {
