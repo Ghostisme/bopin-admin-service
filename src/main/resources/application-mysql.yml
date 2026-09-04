@@ -3,7 +3,8 @@ spring:
     activate:
       on-profile: mysql
   datasource:
-    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/bopin?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    # characterEncoding 必须使用 Java 支持的 UTF-8；MySQL 服务器端仍使用 utf8mb4。
+    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/bopin?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${MYSQL_USERNAME:bopin}
     password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver

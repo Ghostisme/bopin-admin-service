@@ -23,7 +23,7 @@ Windows PowerShell 启动 MySQL profile：
 
 ```powershell
 $env:SPRING_PROFILES_ACTIVE = "mysql"
-$env:MYSQL_URL = "jdbc:mysql://127.0.0.1:3306/bopin?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+$env:MYSQL_URL = "jdbc:mysql://127.0.0.1:3306/bopin?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
 $env:MYSQL_USERNAME = "bopin"
 $env:MYSQL_PASSWORD = "CHANGE_ME"
 $env:MYSQL_INIT_MODE = "always"   # 自动创建缺失表；已有表不会重建
