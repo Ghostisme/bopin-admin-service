@@ -8,6 +8,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+  @ExceptionHandler(UnauthorizedException.class)
+  @ResponseStatus(HttpStatus.UNAUTHORIZED)
+  public ApiResult<Map<String, Object>> handleUnauthorized(UnauthorizedException error) {
+    return new ApiResult<>(401, error.getMessage(), Map.of());
+  }
+
   @ExceptionHandler(BusinessException.class)
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   public ApiResult<Map<String, Object>> handleBusiness(BusinessException error) {

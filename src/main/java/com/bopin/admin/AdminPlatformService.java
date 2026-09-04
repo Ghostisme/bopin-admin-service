@@ -59,13 +59,13 @@ public class AdminPlatformService {
     try { return mapper.readValue(String.valueOf(value), new TypeReference<Map<String, Object>>() {}); } catch (Exception error) { return new LinkedHashMap<>(); }
   }
   private String userId(String token) {
-    if (token == null || token.isBlank()) throw new BusinessException("请先登录对应身份");
+    if (token == null || token.isBlank()) throw new UnauthorizedException("请先登录对应身份");
     String subject = jwtTokens.subject(token);
     if (subject != null && !subject.isBlank()) return subject;
     // 兼容升级前已经写入本地数据库的旧随机 token；新登录一律使用 JWT。
     var legacyRows = queryForList("SELECT user_id FROM auth_session WHERE token=? AND expires_at>?", token, now());
     if (!legacyRows.isEmpty()) return String.valueOf(legacyRows.get(0).get("USER_ID"));
-    throw new BusinessException("登录已失效，请重新登录");
+    throw new UnauthorizedException("登录已失效，请重新登录");
   }
   private Map<String, Object> user(String token) { return one("SELECT * FROM app_user WHERE id=?", userId(token)); }
   private Map<String, Object> authResult(String token, String role, String uid) {
