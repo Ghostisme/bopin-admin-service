@@ -51,6 +51,8 @@ java -jar target/bopin-admin-server-0.1.0.jar --spring.profiles.active=mysql
 
 默认监听 `http://localhost:8080`，健康检查为 `http://localhost:8080/actuator/health`。启动后可看到 `{"status":"UP"}`，再从小程序访问 `/api/v1`。
 
+本地网页调试允许 `localhost`、`127.0.0.1` 和 `198.18.0.1` 的任意开发端口，避免 H5/管理端更换端口后登录预检请求被 CORS 拒绝；正式环境应由网关限制为实际 HTTPS 域名。
+
 ## JWT 登录与通告分页
 
 登录和注册成功后，服务端会返回一个由服务端 HMAC 密钥签名的 JWT access token（包含用户 ID、角色、签发时间、过期时间和 `jti`），同时返回 `tokenType=Bearer` 和 `expiresIn`（秒）。需要登录的接口统一使用标准请求头：
