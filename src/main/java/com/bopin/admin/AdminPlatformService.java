@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -57,16 +58,26 @@ public class AdminPlatformService {
   }
   private String userId(String token) {
     if (token == null || token.isBlank()) throw new BusinessException("请先登录对应身份");
-    var rows = jdbc.queryForList("SELECT user_id FROM auth_session WHERE token=? AND expires_at>?", token, now());
+    var rows = queryForList("SELECT user_id FROM auth_session WHERE token=? AND expires_at>?", token, now());
     if (rows.isEmpty()) throw new BusinessException("登录已失效，请重新登录");
     return String.valueOf(rows.get(0).get("USER_ID"));
   }
   private Map<String, Object> user(String token) { return one("SELECT * FROM app_user WHERE id=?", userId(token)); }
+  private List<Map<String, Object>> queryForList(String sql, Object... args) {
+    return jdbc.queryForList(sql, args).stream().map(this::normalizeRow).toList();
+  }
+
+  private Map<String, Object> normalizeRow(Map<String, Object> row) {
+    Map<String, Object> normalized = new LinkedHashMap<>();
+    row.forEach((key, value) -> normalized.put(key.toUpperCase(Locale.ROOT), value));
+    return normalized;
+  }
+
   private void requireRole(String token, String role) {
     if (!role.equalsIgnoreCase(text(user(token), "ROLE"))) throw new BusinessException(role.equals("merchant") ? "请切换到企业身份" : "请切换到主播身份");
   }
   private Map<String, Object> one(String sql, Object... args) {
-    var rows = jdbc.queryForList(sql, args);
+    var rows = queryForList(sql, args);
     return rows.isEmpty() ? null : rows.get(0);
   }
   private String text(Map<String, Object> row, String key) { return row == null || row.get(key) == null ? "" : String.valueOf(row.get(key)); }
@@ -122,7 +133,7 @@ public class AdminPlatformService {
 
   private List<Map<String, Object>> serviceAccessForUser(String uid) {
     ensureServiceAccess(uid);
-    return jdbc.queryForList("SELECT * FROM account_service_access WHERE user_id=? ORDER BY feature_key", uid)
+    return queryForList("SELECT * FROM account_service_access WHERE user_id=? ORDER BY feature_key", uid)
       .stream().map(row -> {
         Map<String, Object> enriched = new LinkedHashMap<>(row);
         enriched.put("LABEL", featureDefinition(text(row, "FEATURE_KEY")).get("label"));
@@ -402,7 +413,7 @@ public class AdminPlatformService {
   }
 
   private List<Map<String, Object>> anchorCards(String uid) {
-    return jdbc.queryForList("SELECT * FROM anchor_card WHERE owner_id=? AND status='PUBLIC' ORDER BY is_primary DESC,updated_at DESC", uid)
+    return queryForList("SELECT * FROM anchor_card WHERE owner_id=? AND status='PUBLIC' ORDER BY is_primary DESC,updated_at DESC", uid)
       .stream().map(this::anchorCard).toList();
   }
 
@@ -482,7 +493,7 @@ public class AdminPlatformService {
     String gender = filter.getOrDefault("gender", "").trim();
     String category = filter.getOrDefault("category", "").trim().toLowerCase();
     migrateLegacyCards();
-    return jdbc.queryForList("SELECT u.id AS user_id,u.nickname,u.avatar,u.verified,c.id AS card_id,c.card_data,c.is_primary,c.created_at AS card_created_at,c.updated_at AS card_updated_at FROM app_user u JOIN anchor_card c ON c.owner_id=u.id AND c.status='PUBLIC' AND c.is_primary=TRUE WHERE u.role='anchor' ORDER BY c.updated_at DESC")
+    return queryForList("SELECT u.id AS user_id,u.nickname,u.avatar,u.verified,c.id AS card_id,c.card_data,c.is_primary,c.created_at AS card_created_at,c.updated_at AS card_updated_at FROM app_user u JOIN anchor_card c ON c.owner_id=u.id AND c.status='PUBLIC' AND c.is_primary=TRUE WHERE u.role='anchor' ORDER BY c.updated_at DESC")
       .stream()
       .map(this::publicTalent)
       .filter(item -> {
@@ -530,7 +541,7 @@ public class AdminPlatformService {
   }
 
   private void migrateLegacyCards() {
-    jdbc.queryForList("SELECT * FROM app_user WHERE role='anchor' AND card_status='COMPLETE'").forEach(this::migrateLegacyCard);
+    queryForList("SELECT * FROM app_user WHERE role='anchor' AND card_status='COMPLETE'").forEach(this::migrateLegacyCard);
   }
 
   @Transactional
@@ -550,7 +561,7 @@ public class AdminPlatformService {
     if (filter.get("category") != null && !filter.get("category").isBlank()) { sql.append(" AND category=?"); args.add(filter.get("category")); }
     if (filter.get("jobType") != null && !filter.get("jobType").isBlank()) { sql.append(" AND job_type=?"); args.add(filter.get("jobType")); }
     sql.append(" ORDER BY urgent DESC, published_at DESC");
-    return jdbc.queryForList(sql.toString(), args.toArray()).stream().map(this::notice).toList();
+    return queryForList(sql.toString(), args.toArray()).stream().map(this::notice).toList();
   }
 
   public Map<String, Object> noticeById(String noticeId) {
@@ -616,7 +627,7 @@ public class AdminPlatformService {
 
   public List<Map<String, Object>> myNotices(String token, String status) {
     requireRole(token, "merchant"); String uid = userId(token);
-    var rows = jdbc.queryForList("SELECT * FROM job_notice WHERE publisher_id=? AND status<>'DELETED' ORDER BY published_at DESC", uid);
+    var rows = queryForList("SELECT * FROM job_notice WHERE publisher_id=? AND status<>'DELETED' ORDER BY published_at DESC", uid);
     return rows.stream().map(this::myNotice).filter(row -> status == null || status.isBlank() || status.equals(row.get("status"))).toList();
   }
 
@@ -673,7 +684,7 @@ public class AdminPlatformService {
   }
 
   public List<Map<String, Object>> aiScripts(String token) {
-    return jdbc.queryForList("SELECT id,scene,product,tone,content,created_at FROM ai_script WHERE user_id=? ORDER BY created_at DESC", userId(token))
+    return queryForList("SELECT id,scene,product,tone,content,created_at FROM ai_script WHERE user_id=? ORDER BY created_at DESC", userId(token))
       .stream().map(row -> Map.<String, Object>of(
         "id", text(row, "ID"), "scene", text(row, "SCENE"), "product", text(row, "PRODUCT"),
         "tone", text(row, "TONE"), "content", text(row, "CONTENT"), "createdAt", row.get("CREATED_AT")
@@ -688,7 +699,7 @@ public class AdminPlatformService {
   }
 
   public List<Map<String, Object>> conversations() {
-    return jdbc.queryForList("SELECT id,role,name,avatar,last_message,last_time,unread FROM conversation ORDER BY last_time DESC")
+    return queryForList("SELECT id,role,name,avatar,last_message,last_time,unread FROM conversation ORDER BY last_time DESC")
       .stream().map(row -> Map.<String, Object>of(
         "id", text(row, "ID"), "role", text(row, "ROLE"), "name", text(row, "NAME"), "avatar", text(row, "AVATAR"),
         "lastMessage", text(row, "LAST_MESSAGE"), "lastTime", row.get("LAST_TIME"), "unread", number(row, "UNREAD")
@@ -699,7 +710,7 @@ public class AdminPlatformService {
       "type", text(row, "MESSAGE_TYPE"), "fromMe", Boolean.TRUE.equals(row.get("FROM_ME")), "createdAt", row.get("CREATED_AT"));
   }
   public List<Map<String, Object>> messages(String conversationId) {
-    return jdbc.queryForList("SELECT id,conversation_id,content,message_type,from_me,created_at FROM chat_message WHERE conversation_id=? ORDER BY created_at", conversationId)
+    return queryForList("SELECT id,conversation_id,content,message_type,from_me,created_at FROM chat_message WHERE conversation_id=? ORDER BY created_at", conversationId)
       .stream().map(this::message).toList();
   }
 
@@ -716,42 +727,42 @@ public class AdminPlatformService {
   public Map<String, Object> createContract(Map<String, Object> input) { String cid=id("ct"); jdbc.update("INSERT INTO employment_contract(id,anchor_name,company,job_title,amount,status,created_at) VALUES(?,?,?,?,?,?,?)", cid, input.getOrDefault("anchorName", "主播"), input.getOrDefault("company", "招聘企业"), input.getOrDefault("jobTitle", "主播"), input.getOrDefault("amount", 0), "DRAFT", now()); return one("SELECT * FROM employment_contract WHERE id=?", cid); }
   @Transactional
   public Map<String, Object> createAnchorContract(String token, Map<String, Object> input) { requireAnchorCard(token); return createContract(input); }
-  public List<Map<String,Object>> contracts() { return jdbc.queryForList("SELECT * FROM employment_contract ORDER BY created_at DESC"); }
+  public List<Map<String,Object>> contracts() { return queryForList("SELECT * FROM employment_contract ORDER BY created_at DESC"); }
   @Transactional
   public Map<String,Object> settle(String contractId, Map<String,Object> input) { var contract=one("SELECT * FROM employment_contract WHERE id=?", contractId); if(contract==null) throw new BusinessException("合同不存在"); BigDecimal gross=new BigDecimal(String.valueOf(input.getOrDefault("grossAmount", contract.get("AMOUNT")))); BigDecimal fee=gross.multiply(new BigDecimal("0.06")).setScale(2,RoundingMode.HALF_UP); BigDecimal net=gross.subtract(fee); String sid=id("set"); jdbc.update("INSERT INTO settlement(id,contract_id,currency,gross_amount,service_fee,net_amount,status,created_at) VALUES(?,?,?,?,?,?,?,?)", sid,contractId,input.getOrDefault("currency","CNY"),gross,fee,net,"SETTLED_SANDBOX",now()); return one("SELECT * FROM settlement WHERE id=?",sid); }
   @Transactional
   public Map<String,Object> settleAnchorContract(String token, String contractId, Map<String,Object> input) { requireAnchorCard(token); return settle(contractId, input); }
-  public List<Map<String,Object>> settlements() { return jdbc.queryForList("SELECT * FROM settlement ORDER BY created_at DESC"); }
+  public List<Map<String,Object>> settlements() { return queryForList("SELECT * FROM settlement ORDER BY created_at DESC"); }
   @Transactional
   public Map<String,Object> invitation(Map<String,Object> input) { String id=id("invite"); jdbc.update("INSERT INTO paid_invitation(id,company,anchor_name,job_title,fee,status,created_at) VALUES(?,?,?,?,?,?,?)",id,input.getOrDefault("company","招聘企业"),input.getOrDefault("anchorName","主播"),input.getOrDefault("jobTitle","主播"),input.getOrDefault("fee",29.9),"PAID_SANDBOX",now()); return one("SELECT * FROM paid_invitation WHERE id=?",id); }
-  public List<Map<String,Object>> invitations() { return jdbc.queryForList("SELECT * FROM paid_invitation ORDER BY created_at DESC"); }
+  public List<Map<String,Object>> invitations() { return queryForList("SELECT * FROM paid_invitation ORDER BY created_at DESC"); }
 
-  public List<Map<String,Object>> courses(String mode) { return mode == null || mode.isBlank() ? jdbc.queryForList("SELECT * FROM course ORDER BY starts_at") : jdbc.queryForList("SELECT * FROM course WHERE mode=? ORDER BY starts_at", mode); }
+  public List<Map<String,Object>> courses(String mode) { return mode == null || mode.isBlank() ? queryForList("SELECT * FROM course ORDER BY starts_at") : queryForList("SELECT * FROM course WHERE mode=? ORDER BY starts_at", mode); }
   @Transactional
   public Map<String,Object> enroll(String token,String courseId) { requireAnchorCard(token); String uid=userId(token); var course=one("SELECT * FROM course WHERE id=?",courseId); if(course==null) throw new BusinessException("课程不存在"); if(number(course,"ENROLLED")>=number(course,"CAPACITY")) throw new BusinessException("课程名额已满"); String eid=id("enroll"); jdbc.update("INSERT INTO course_enrollment(id,course_id,user_id,status,score,certificate_no,created_at) VALUES(?,?,?,?,?,?,?)",eid,courseId,uid,"ENROLLED",null,null,now()); jdbc.update("UPDATE course SET enrolled=enrolled+1 WHERE id=?",courseId); return one("SELECT * FROM course_enrollment WHERE id=?",eid); }
   @Transactional
   public Map<String,Object> exam(String token,String enrollmentId,Map<String,Object> input) { requireAnchorCard(token); int score=((Number)input.getOrDefault("score",0)).intValue(); String status=score>=60?"PASSED":"RETAKE"; String cert=score>=60?"BP-"+now():null; jdbc.update("UPDATE course_enrollment SET score=?,status=?,certificate_no=? WHERE id=? AND user_id=?",score,status,cert,enrollmentId,userId(token)); return one("SELECT * FROM course_enrollment WHERE id=?",enrollmentId); }
-  public List<Map<String,Object>> enrollments(String token) { return jdbc.queryForList("SELECT ce.*,c.name,c.mode,c.city FROM course_enrollment ce JOIN course c ON c.id=ce.course_id WHERE ce.user_id=? ORDER BY ce.created_at DESC",userId(token)); }
+  public List<Map<String,Object>> enrollments(String token) { return queryForList("SELECT ce.*,c.name,c.mode,c.city FROM course_enrollment ce JOIN course c ON c.id=ce.course_id WHERE ce.user_id=? ORDER BY ce.created_at DESC",userId(token)); }
 
-  public List<Map<String,Object>> products() { return jdbc.queryForList("SELECT * FROM equipment_product WHERE status='ON_SALE'"); }
+  public List<Map<String,Object>> products() { return queryForList("SELECT * FROM equipment_product WHERE status='ON_SALE'"); }
   @Transactional
   public Map<String,Object> orderProduct(String token,String productId,Map<String,Object> input) { requireAnchorCard(token); var p=one("SELECT * FROM equipment_product WHERE id=?",productId); if(p==null||number(p,"STOCK")<1) throw new BusinessException("商品库存不足"); BigDecimal amount=new BigDecimal(String.valueOf(p.get("GROUP_PRICE"))); String oid=id("order"); jdbc.update("INSERT INTO platform_order(id,order_type,item_id,user_id,amount,currency,status,created_at) VALUES(?,?,?,?,?,?,?,?)",oid,"EQUIPMENT",productId,userId(token),amount,"CNY","PAID_SANDBOX",now()); jdbc.update("UPDATE equipment_product SET stock=stock-1,participants=participants+1 WHERE id=?",productId); return one("SELECT * FROM platform_order WHERE id=?",oid); }
-  public List<Map<String,Object>> orders(String token) { return jdbc.queryForList("SELECT * FROM platform_order WHERE user_id=? ORDER BY created_at DESC",userId(token)); }
+  public List<Map<String,Object>> orders(String token) { return queryForList("SELECT * FROM platform_order WHERE user_id=? ORDER BY created_at DESC",userId(token)); }
 
-  public List<Map<String,Object>> events() { return jdbc.queryForList("SELECT * FROM annual_event ORDER BY event_date"); }
+  public List<Map<String,Object>> events() { return queryForList("SELECT * FROM annual_event ORDER BY event_date"); }
   @Transactional
   public Map<String,Object> registerEvent(String token,String eventId) { requireAnchorCard(token); String rid=id("eventreg"); try { jdbc.update("INSERT INTO event_registration(id,event_id,user_id,status,votes,created_at) VALUES(?,?,?,?,?,?)",rid,eventId,userId(token),"REGISTERED",0,now()); } catch(Exception error) { throw new BusinessException("你已经报名过该活动"); } return one("SELECT * FROM event_registration WHERE id=?",rid); }
   @Transactional
   public Map<String,Object> vote(String registrationId) { jdbc.update("UPDATE event_registration SET votes=votes+1 WHERE id=?",registrationId); return one("SELECT * FROM event_registration WHERE id=?",registrationId); }
-  public List<Map<String,Object>> eventRegistrations(String eventId) { return jdbc.queryForList("SELECT * FROM event_registration WHERE event_id=? ORDER BY votes DESC",eventId); }
+  public List<Map<String,Object>> eventRegistrations(String eventId) { return queryForList("SELECT * FROM event_registration WHERE event_id=? ORDER BY votes DESC",eventId); }
 
   @Transactional
   public Map<String,Object> crossBorder(String token,Map<String,Object> input) { requireAnchorCard(token); BigDecimal foreign=new BigDecimal(String.valueOf(input.getOrDefault("foreignAmount",0))); BigDecimal rate=new BigDecimal(String.valueOf(input.getOrDefault("rate",7.24))); BigDecimal cny=foreign.multiply(rate).setScale(2,RoundingMode.HALF_UP); BigDecimal fee=cny.multiply(new BigDecimal("0.015")).setScale(2,RoundingMode.HALF_UP); String sid=id("fx"); jdbc.update("INSERT INTO crossborder_settlement(id,user_id,country,currency,foreign_amount,rate,cny_amount,fee,net_cny,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",sid,userId(token),input.getOrDefault("country","新加坡"),input.getOrDefault("currency","USD"),foreign,rate,cny,fee,cny.subtract(fee),"SETTLED_SANDBOX",now()); return one("SELECT * FROM crossborder_settlement WHERE id=?",sid); }
-  public List<Map<String,Object>> crossBorders(String token) { return jdbc.queryForList("SELECT * FROM crossborder_settlement WHERE user_id=? ORDER BY created_at DESC",userId(token)); }
-  public List<Map<String,Object>> providers(String country) { return country==null||country.isBlank()?jdbc.queryForList("SELECT * FROM eor_provider WHERE status='ACTIVE' ORDER BY rating DESC"):jdbc.queryForList("SELECT * FROM eor_provider WHERE status='ACTIVE' AND country=? ORDER BY rating DESC",country); }
+  public List<Map<String,Object>> crossBorders(String token) { return queryForList("SELECT * FROM crossborder_settlement WHERE user_id=? ORDER BY created_at DESC",userId(token)); }
+  public List<Map<String,Object>> providers(String country) { return country==null||country.isBlank()?queryForList("SELECT * FROM eor_provider WHERE status='ACTIVE' ORDER BY rating DESC"):queryForList("SELECT * FROM eor_provider WHERE status='ACTIVE' AND country=? ORDER BY rating DESC",country); }
   @Transactional
   public Map<String,Object> eorRequest(Map<String,Object> input) { String rid=id("eor"); jdbc.update("INSERT INTO eor_request(id,provider_id,company,candidate,country,status,created_at) VALUES(?,?,?,?,?,?,?)",rid,input.getOrDefault("providerId","eor_sg_1"),input.getOrDefault("company","招聘企业"),input.getOrDefault("candidate","主播"),input.getOrDefault("country","新加坡"),"SUBMITTED_SANDBOX",now()); return one("SELECT * FROM eor_request WHERE id=?",rid); }
-  public List<Map<String,Object>> eorRequests() { return jdbc.queryForList("SELECT * FROM eor_request ORDER BY created_at DESC"); }
+  public List<Map<String,Object>> eorRequests() { return queryForList("SELECT * FROM eor_request ORDER BY created_at DESC"); }
 
   public Map<String,Object> adminOverview() {
     return Map.of(
@@ -780,7 +791,7 @@ public class AdminPlatformService {
   public Map<String, Object> adminSettings() {
     ensureAdminSettings();
     Map<String, Object> result = new LinkedHashMap<>();
-    jdbc.queryForList("SELECT setting_key,setting_value FROM platform_setting ORDER BY setting_key").forEach(row -> result.put(text(row, "SETTING_KEY"), booleanValue(row.get("SETTING_VALUE"))));
+    queryForList("SELECT setting_key,setting_value FROM platform_setting ORDER BY setting_key").forEach(row -> result.put(text(row, "SETTING_KEY"), booleanValue(row.get("SETTING_VALUE"))));
     return result;
   }
 
@@ -794,28 +805,28 @@ public class AdminPlatformService {
 
   public Map<String, Object> adminExport() {
     Map<String, Object> result = new LinkedHashMap<>();
-    result.put("anchors", jdbc.queryForList("SELECT id,nickname,verified,city,categories,card_status,card_data,created_at FROM app_user WHERE role='anchor' ORDER BY created_at DESC"));
+    result.put("anchors", queryForList("SELECT id,nickname,verified,city,categories,card_status,card_data,created_at FROM app_user WHERE role='anchor' ORDER BY created_at DESC"));
     result.put("anchorCards", adminAnchorCards());
     result.put("serviceAccess", adminServiceAccess());
     result.put("notices", notices(Map.of()));
-    result.put("contactUnlocks", jdbc.queryForList("SELECT * FROM contact_unlock ORDER BY created_at DESC"));
-    result.put("paidServiceOrders", jdbc.queryForList("SELECT * FROM paid_service_order ORDER BY created_at DESC"));
-    result.put("withdrawalRequests", jdbc.queryForList("SELECT * FROM withdrawal_request ORDER BY created_at DESC"));
+    result.put("contactUnlocks", queryForList("SELECT * FROM contact_unlock ORDER BY created_at DESC"));
+    result.put("paidServiceOrders", queryForList("SELECT * FROM paid_service_order ORDER BY created_at DESC"));
+    result.put("withdrawalRequests", queryForList("SELECT * FROM withdrawal_request ORDER BY created_at DESC"));
     result.put("conversations", conversations());
-    result.put("chatMessages", jdbc.queryForList("SELECT id,conversation_id,content,message_type,from_me,created_at FROM chat_message ORDER BY created_at DESC"));
+    result.put("chatMessages", queryForList("SELECT id,conversation_id,content,message_type,from_me,created_at FROM chat_message ORDER BY created_at DESC"));
     result.put("settings", adminSettings());
-    result.put("membershipOrders", jdbc.queryForList("SELECT * FROM membership_order ORDER BY created_at DESC"));
-    result.put("aiScripts", jdbc.queryForList("SELECT id,user_id,scene,product,tone,created_at FROM ai_script ORDER BY created_at DESC"));
+    result.put("membershipOrders", queryForList("SELECT * FROM membership_order ORDER BY created_at DESC"));
+    result.put("aiScripts", queryForList("SELECT id,user_id,scene,product,tone,created_at FROM ai_script ORDER BY created_at DESC"));
     result.put("contracts", contracts());
     result.put("settlements", settlements());
     result.put("invitations", invitations());
     result.put("courses", courses(null));
-    result.put("courseEnrollments", jdbc.queryForList("SELECT * FROM course_enrollment ORDER BY created_at DESC"));
+    result.put("courseEnrollments", queryForList("SELECT * FROM course_enrollment ORDER BY created_at DESC"));
     result.put("products", products());
-    result.put("equipmentOrders", jdbc.queryForList("SELECT * FROM platform_order WHERE order_type='EQUIPMENT' ORDER BY created_at DESC"));
+    result.put("equipmentOrders", queryForList("SELECT * FROM platform_order WHERE order_type='EQUIPMENT' ORDER BY created_at DESC"));
     result.put("events", events());
-    result.put("eventRegistrations", jdbc.queryForList("SELECT * FROM event_registration ORDER BY created_at DESC"));
-    result.put("crossBorderSettlements", jdbc.queryForList("SELECT * FROM crossborder_settlement ORDER BY created_at DESC"));
+    result.put("eventRegistrations", queryForList("SELECT * FROM event_registration ORDER BY created_at DESC"));
+    result.put("crossBorderSettlements", queryForList("SELECT * FROM crossborder_settlement ORDER BY created_at DESC"));
     result.put("eorProviders", providers(null));
     result.put("eorRequests", eorRequests());
     result.put("overview", adminOverview());
@@ -825,7 +836,7 @@ public class AdminPlatformService {
   /** 管理后台按主播账号查看和调整收费服务的开关、次数、有效期及价格。 */
   public List<Map<String, Object>> adminServiceAccess() {
     migrateLegacyCards();
-    return jdbc.queryForList("SELECT id,nickname,phone,verified FROM app_user WHERE role='anchor' ORDER BY created_at DESC")
+    return queryForList("SELECT id,nickname,phone,verified FROM app_user WHERE role='anchor' ORDER BY created_at DESC")
       .stream().map(userRow -> {
         String uid = text(userRow, "ID");
         Map<String, Object> result = new LinkedHashMap<>();
@@ -861,7 +872,7 @@ public class AdminPlatformService {
   /** 管理后台查看主播的全部公开模卡，而不是只看主模卡摘要。 */
   public List<Map<String, Object>> adminAnchorCards() {
     migrateLegacyCards();
-    return jdbc.queryForList("SELECT u.id AS user_id,u.nickname,u.avatar,u.phone,u.verified,c.id AS card_id,c.card_data,c.is_primary,c.status,c.created_at,c.updated_at FROM app_user u JOIN anchor_card c ON c.owner_id=u.id WHERE u.role='anchor' AND c.status='PUBLIC' ORDER BY c.updated_at DESC")
+    return queryForList("SELECT u.id AS user_id,u.nickname,u.avatar,u.phone,u.verified,c.id AS card_id,c.card_data,c.is_primary,c.status,c.created_at,c.updated_at FROM app_user u JOIN anchor_card c ON c.owner_id=u.id WHERE u.role='anchor' AND c.status='PUBLIC' ORDER BY c.updated_at DESC")
       .stream()
       .map(row -> {
         Map<String, Object> result = new LinkedHashMap<>();
