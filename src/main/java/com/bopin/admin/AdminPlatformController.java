@@ -17,7 +17,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1")
-@CrossOrigin(origins = {"http://localhost:5174", "http://127.0.0.1:5174", "http://198.18.0.1:5174", "http://localhost:10086", "http://127.0.0.1:10086"})
+// Local H5/admin dev servers often use different ports. Restrict wildcard
+// matching to loopback/local development hosts; production should put the
+// public HTTPS origin behind the gateway and configure it explicitly there.
+@CrossOrigin(originPatterns = {"http://localhost:*", "http://127.0.0.1:*", "http://198.18.0.1:*"})
 public class AdminPlatformController {
   private final AdminPlatformService service;
   public AdminPlatformController(AdminPlatformService service) { this.service = service; }
