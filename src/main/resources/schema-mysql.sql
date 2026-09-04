@@ -1,0 +1,300 @@
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS=0;
+
+CREATE TABLE IF NOT EXISTS app_user (
+  id VARCHAR(64) PRIMARY KEY,
+  role VARCHAR(32) NOT NULL,
+  nickname VARCHAR(100) NOT NULL,
+  avatar VARCHAR(500) NOT NULL DEFAULT '',
+  phone VARCHAR(40) NOT NULL,
+  verified BOOLEAN NOT NULL DEFAULT FALSE,
+  city VARCHAR(100) NOT NULL DEFAULT '',
+  categories LONGTEXT NOT NULL,
+  intro LONGTEXT NOT NULL,
+  experience_years INT NOT NULL DEFAULT 0,
+  card_status VARCHAR(24) NOT NULL DEFAULT 'INCOMPLETE',
+  card_data LONGTEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  UNIQUE KEY ux_app_user_role_phone (role, phone)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 模卡是主播可独立维护的作品集合；企业端只读取其中一张主展示模卡。
+CREATE TABLE IF NOT EXISTS anchor_card (
+  id VARCHAR(64) PRIMARY KEY,
+  owner_id VARCHAR(64) NOT NULL,
+  card_data LONGTEXT NOT NULL,
+  is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+  status VARCHAR(24) NOT NULL DEFAULT 'PUBLIC',
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  KEY ix_anchor_card_owner (owner_id, updated_at),
+  KEY ix_anchor_card_primary (owner_id, is_primary, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS auth_session (
+  token VARCHAR(100) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  expires_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS user_wallet (
+  user_id VARCHAR(64) PRIMARY KEY,
+  card_balance INT NOT NULL DEFAULT 0,
+  member_level VARCHAR(32) NOT NULL DEFAULT 'FREE',
+  ai_quota INT NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 主播收费服务的账号级授权。默认开放且不限次数/有效期，后续由后台逐账号收紧。
+CREATE TABLE IF NOT EXISTS account_service_access (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  feature_key VARCHAR(64) NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  count_limited BOOLEAN NOT NULL DEFAULT FALSE,
+  remaining_count INT NOT NULL DEFAULT 0,
+  expiry_limited BOOLEAN NOT NULL DEFAULT FALSE,
+  expires_at BIGINT,
+  unit_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  fee_rate DECIMAL(8,4) NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL,
+  UNIQUE(user_id, feature_key),
+  KEY ix_account_service_access_user (user_id, feature_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS paid_service_order (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  feature_key VARCHAR(64) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL,
+  metadata LONGTEXT NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS withdrawal_request (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  gross_amount DECIMAL(14,2) NOT NULL,
+  service_fee DECIMAL(14,2) NOT NULL,
+  net_amount DECIMAL(14,2) NOT NULL,
+  fee_rate DECIMAL(8,4) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS platform_setting (
+  setting_key VARCHAR(64) PRIMARY KEY,
+  setting_value VARCHAR(255) NOT NULL,
+  updated_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS job_notice (
+  id VARCHAR(64) PRIMARY KEY,
+  title VARCHAR(160) NOT NULL,
+  job_type VARCHAR(32) NOT NULL,
+  category VARCHAR(64) NOT NULL,
+  salary_min DECIMAL(12,2) NOT NULL,
+  salary_max DECIMAL(12,2) NOT NULL,
+  salary_unit VARCHAR(32) NOT NULL,
+  salary_display VARCHAR(80) NOT NULL,
+  city VARCHAR(100) NOT NULL,
+  address VARCHAR(300) NOT NULL,
+  distance_km DECIMAL(10,2) NOT NULL DEFAULT 0,
+  longitude DECIMAL(12,6) NOT NULL DEFAULT 0,
+  latitude DECIMAL(12,6) NOT NULL DEFAULT 0,
+  duties LONGTEXT NOT NULL,
+  requirements LONGTEXT NOT NULL,
+  tags LONGTEXT NOT NULL,
+  publisher_id VARCHAR(64) NOT NULL,
+  publisher_name VARCHAR(180) NOT NULL,
+  publisher_avatar VARCHAR(500) NOT NULL DEFAULT '',
+  publisher_real_name BOOLEAN NOT NULL DEFAULT FALSE,
+  publisher_enterprise BOOLEAN NOT NULL DEFAULT FALSE,
+  urgent BOOLEAN NOT NULL DEFAULT FALSE,
+  published_at BIGINT NOT NULL,
+  view_count INT NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL DEFAULT 'PUBLISHED',
+  apply_count INT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS contact_unlock (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  job_id VARCHAR(64) NOT NULL,
+  cost INT NOT NULL,
+  created_at BIGINT NOT NULL,
+  UNIQUE(user_id, job_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS membership_order (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  plan VARCHAR(32) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ai_script (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  scene VARCHAR(80) NOT NULL,
+  product VARCHAR(160) NOT NULL,
+  tone VARCHAR(80) NOT NULL,
+  content LONGTEXT NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS conversation (
+  id VARCHAR(64) PRIMARY KEY,
+  role VARCHAR(32) NOT NULL,
+  name VARCHAR(120) NOT NULL,
+  avatar VARCHAR(500) NOT NULL DEFAULT '',
+  last_message VARCHAR(500) NOT NULL,
+  last_time BIGINT NOT NULL,
+  unread INT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS chat_message (
+  id VARCHAR(64) PRIMARY KEY,
+  conversation_id VARCHAR(64) NOT NULL,
+  content LONGTEXT NOT NULL,
+  message_type VARCHAR(32) NOT NULL,
+  from_me BOOLEAN NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS message_quota (
+  user_id VARCHAR(64) PRIMARY KEY,
+  remaining_count INT NOT NULL,
+  total_count INT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS employment_contract (
+  id VARCHAR(64) PRIMARY KEY,
+  anchor_name VARCHAR(120) NOT NULL,
+  company VARCHAR(180) NOT NULL,
+  job_title VARCHAR(160) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS settlement (
+  id VARCHAR(64) PRIMARY KEY,
+  contract_id VARCHAR(64) NOT NULL,
+  currency VARCHAR(16) NOT NULL,
+  gross_amount DECIMAL(12,2) NOT NULL,
+  service_fee DECIMAL(12,2) NOT NULL,
+  net_amount DECIMAL(12,2) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS paid_invitation (
+  id VARCHAR(64) PRIMARY KEY,
+  company VARCHAR(180) NOT NULL,
+  anchor_name VARCHAR(120) NOT NULL,
+  job_title VARCHAR(160) NOT NULL,
+  fee DECIMAL(12,2) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS course (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(180) NOT NULL,
+  mode VARCHAR(32) NOT NULL,
+  city VARCHAR(100) NOT NULL,
+  starts_at BIGINT NOT NULL,
+  capacity INT NOT NULL,
+  enrolled INT NOT NULL DEFAULT 0,
+  price DECIMAL(12,2) NOT NULL,
+  status VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS course_enrollment (
+  id VARCHAR(64) PRIMARY KEY,
+  course_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  score INT,
+  certificate_no VARCHAR(80),
+  created_at BIGINT NOT NULL,
+  UNIQUE(course_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS equipment_product (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(180) NOT NULL,
+  price DECIMAL(12,2) NOT NULL,
+  group_price DECIMAL(12,2) NOT NULL,
+  stock INT NOT NULL,
+  participants INT NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS platform_order (
+  id VARCHAR(64) PRIMARY KEY,
+  order_type VARCHAR(32) NOT NULL,
+  item_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  currency VARCHAR(16) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS annual_event (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(180) NOT NULL,
+  city VARCHAR(100) NOT NULL,
+  event_date BIGINT NOT NULL,
+  status VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS event_registration (
+  id VARCHAR(64) PRIMARY KEY,
+  event_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  votes INT NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL,
+  UNIQUE(event_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS crossborder_settlement (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  country VARCHAR(80) NOT NULL,
+  currency VARCHAR(16) NOT NULL,
+  foreign_amount DECIMAL(14,2) NOT NULL,
+  rate DECIMAL(14,6) NOT NULL,
+  cny_amount DECIMAL(14,2) NOT NULL,
+  fee DECIMAL(14,2) NOT NULL,
+  net_cny DECIMAL(14,2) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS eor_provider (
+  id VARCHAR(64) PRIMARY KEY,
+  country VARCHAR(80) NOT NULL,
+  name VARCHAR(180) NOT NULL,
+  currencies VARCHAR(120) NOT NULL,
+  service_fee DECIMAL(8,4) NOT NULL,
+  rating DECIMAL(3,2) NOT NULL,
+  status VARCHAR(32) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS eor_request (
+  id VARCHAR(64) PRIMARY KEY,
+  provider_id VARCHAR(64) NOT NULL,
+  company VARCHAR(180) NOT NULL,
+  candidate VARCHAR(120) NOT NULL,
+  country VARCHAR(80) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+SET FOREIGN_KEY_CHECKS=1;

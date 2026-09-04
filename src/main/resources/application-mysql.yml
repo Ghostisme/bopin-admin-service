@@ -1,0 +1,17 @@
+spring:
+  config:
+    activate:
+      on-profile: mysql
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/bopin?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:bopin}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  sql:
+    init:
+      mode: ${MYSQL_INIT_MODE:always}
+      schema-locations: classpath:schema-mysql.sql
+      # 正式 MySQL 默认不写入演示数据。需要本地演示时显式设置：
+      # MYSQL_DATA_LOCATIONS=classpath:data-mysql.sql
+      data-locations: ${MYSQL_DATA_LOCATIONS:classpath:data-mysql-empty.sql}
+      encoding: UTF-8
