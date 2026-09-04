@@ -59,7 +59,7 @@ java -jar target/bopin-admin-server-0.1.0.jar --spring.profiles.active=mysql
 Authorization: Bearer <access-token>
 ```
 
-服务端会校验签名、issuer 和过期时间；旧版本已经写入 `auth_session` 的随机 token 仍可在迁移期间兼容读取，但新登录不会再生成旧 token。生产部署必须设置 `JWT_SECRET`（至少 32 字节、不要提交到代码仓库），并按需要设置 `JWT_EXPIRATION_MS` 和 `JWT_ISSUER`。
+服务端会校验签名、issuer 和过期时间；缺少、伪造或过期 token 会返回 HTTP 401。旧版本已经写入 `auth_session` 的随机 token 仍可在迁移期间兼容读取，但新登录不会再生成旧 token。生产部署必须设置 `JWT_SECRET`（至少 32 字节、不要提交到代码仓库），并按需要设置 `JWT_EXPIRATION_MS` 和 `JWT_ISSUER`。
 
 岗位通告接口已经改为 MySQL 服务端分页，避免客户端一次性拉取整张表：
 
