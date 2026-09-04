@@ -24,8 +24,10 @@ public class AdminController {
 
   @GetMapping("/notices")
   public Map<String, Object> notices(@RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "20") int size) {
-    var all = service.notices(Map.of());
-    var rows = all.stream().skip((long) (page - 1) * size).limit(size).map(row -> Map.of(
+    var pageResult = service.noticePage(Map.of("page", String.valueOf(page), "pageSize", String.valueOf(size)));
+    @SuppressWarnings("unchecked")
+    var all = (List<Map<String, Object>>) pageResult.get("items");
+    var rows = all.stream().map(row -> Map.of(
       "id", row.get("id"),
       "title", row.get("title"),
       "company", ((Map<?, ?>) row.get("publisher")).get("name"),
@@ -33,7 +35,7 @@ public class AdminController {
       "salary", ((Map<?, ?>) row.get("salary")).get("display"),
       "status", row.get("status")
     )).toList();
-    return Map.of("page", page, "size", size, "total", all.size(), "items", rows);
+    return Map.of("page", pageResult.get("page"), "size", pageResult.get("pageSize"), "total", pageResult.get("total"), "items", rows);
   }
 
 }

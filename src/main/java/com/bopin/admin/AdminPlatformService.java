@@ -23,6 +23,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class AdminPlatformService {
   private final JdbcTemplate jdbc;
   private final ObjectMapper mapper;
+  private final JwtTokenService jwtTokens;
 
   private static final List<Map<String, Object>> SERVICE_FEATURES = List.of(
     Map.of("key", "CARD_OPTIMIZE", "label", "模卡后期优化", "unitPrice", new BigDecimal("9.90"), "feeRate", BigDecimal.ZERO),
@@ -32,9 +33,10 @@ public class AdminPlatformService {
     Map.of("key", "CONTACT_UNLOCK", "label", "联系方式解锁", "unitPrice", BigDecimal.ONE, "feeRate", BigDecimal.ZERO)
   );
 
-  public AdminPlatformService(JdbcTemplate jdbc, ObjectMapper mapper) {
+  public AdminPlatformService(JdbcTemplate jdbc, ObjectMapper mapper, JwtTokenService jwtTokens) {
     this.jdbc = jdbc;
     this.mapper = mapper;
+    this.jwtTokens = jwtTokens;
   }
 
   private long now() { return Instant.now().toEpochMilli(); }
@@ -58,11 +60,17 @@ public class AdminPlatformService {
   }
   private String userId(String token) {
     if (token == null || token.isBlank()) throw new BusinessException("请先登录对应身份");
-    var rows = queryForList("SELECT user_id FROM auth_session WHERE token=? AND expires_at>?", token, now());
-    if (rows.isEmpty()) throw new BusinessException("登录已失效，请重新登录");
-    return String.valueOf(rows.get(0).get("USER_ID"));
+    String subject = jwtTokens.subject(token);
+    if (subject != null && !subject.isBlank()) return subject;
+    // 兼容升级前已经写入本地数据库的旧随机 token；新登录一律使用 JWT。
+    var legacyRows = queryForList("SELECT user_id FROM auth_session WHERE token=? AND expires_at>?", token, now());
+    if (!legacyRows.isEmpty()) return String.valueOf(legacyRows.get(0).get("USER_ID"));
+    throw new BusinessException("登录已失效，请重新登录");
   }
   private Map<String, Object> user(String token) { return one("SELECT * FROM app_user WHERE id=?", userId(token)); }
+  private Map<String, Object> authResult(String token, String role, String uid) {
+    return Map.of("token", token, "tokenType", "Bearer", "expiresIn", jwtTokens.expiresInSeconds(), "role", role, "user", profile(uid));
+  }
   private List<Map<String, Object>> queryForList(String sql, Object... args) {
     return jdbc.queryForList(sql, args).stream().map(this::normalizeRow).toList();
   }
@@ -171,9 +179,8 @@ public class AdminPlatformService {
     jdbc.update("INSERT INTO app_user(id,role,nickname,avatar,phone,verified,city,categories,intro,experience_years,card_status,card_data,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", uid, role, nickname, "", phone, false, "", "[]", "", 0, "INCOMPLETE", "{}", now());
     jdbc.update("INSERT INTO user_wallet(user_id,card_balance,member_level,ai_quota,updated_at) VALUES(?,?,?,?,?)", uid, 3, "FREE", 3, now());
     jdbc.update("INSERT INTO message_quota(user_id,remaining_count,total_count) VALUES(?,?,?)", uid, 3, 3);
-    String token = UUID.randomUUID().toString().replace("-", "");
-    jdbc.update("INSERT INTO auth_session(token,user_id,expires_at) VALUES(?,?,?)", token, uid, now() + 30L * 24 * 3600 * 1000);
-    return Map.of("token", token, "role", role, "user", profile(uid));
+    String token = jwtTokens.issue(uid, role);
+    return authResult(token, role, uid);
   }
 
   @Transactional
@@ -195,9 +202,8 @@ public class AdminPlatformService {
     } else {
       uid = text(row, "ID");
     }
-    String token = UUID.randomUUID().toString().replace("-", "");
-    jdbc.update("INSERT INTO auth_session(token,user_id,expires_at) VALUES(?,?,?)", token, uid, now() + 30L * 24 * 3600 * 1000);
-    return Map.of("token", token, "role", role, "user", profile(uid));
+    String token = jwtTokens.issue(uid, role);
+    return authResult(token, role, uid);
   }
 
   public Map<String, Object> profile(String uid) {
@@ -553,15 +559,65 @@ public class AdminPlatformService {
     return Map.of("verified", true, "status", "APPROVED", "message", "实名认证资料已进入审核队列");
   }
 
+  private String noticeWhere(Map<String, String> filter, List<Object> args) {
+    StringBuilder where = new StringBuilder(" WHERE status<>'DELETED'");
+    String keyword = filter.get("keyword");
+    if (keyword != null && !keyword.isBlank()) {
+      where.append(" AND (LOWER(title) LIKE LOWER(?) OR LOWER(city) LIKE LOWER(?) OR LOWER(publisher_name) LIKE LOWER(?))");
+      String kw = "%" + keyword.trim() + "%";
+      args.add(kw); args.add(kw); args.add(kw);
+    }
+    if (filter.get("city") != null && !filter.get("city").isBlank()) { where.append(" AND city=?"); args.add(filter.get("city")); }
+    if (filter.get("category") != null && !filter.get("category").isBlank()) { where.append(" AND category=?"); args.add(filter.get("category")); }
+    if (filter.get("jobType") != null && !filter.get("jobType").isBlank()) { where.append(" AND job_type=?"); args.add(filter.get("jobType")); }
+    return where.toString();
+  }
+
+  private int positiveInt(String value, int fallback, int max) {
+    try { return Math.max(1, Math.min(max, Integer.parseInt(value))); }
+    catch (Exception error) { return fallback; }
+  }
+
+  /**
+   * Server-side paginated notice query. Filtering, sorting, total count and
+   * page boundaries are all applied in MySQL so the client never loads the
+   * complete notice table into memory.
+   */
+  public Map<String, Object> noticePage(Map<String, String> filter) {
+    int page = positiveInt(filter.get("page"), 1, Integer.MAX_VALUE);
+    String sizeValue = filter.get("pageSize") == null ? filter.get("size") : filter.get("pageSize");
+    int pageSize = positiveInt(sizeValue, 20, 100);
+    List<Object> whereArgs = new ArrayList<>();
+    String where = noticeWhere(filter, whereArgs);
+    int total = number(one("SELECT COUNT(*) AS total FROM job_notice" + where, whereArgs.toArray()), "TOTAL");
+    String order = switch (String.valueOf(filter.getOrDefault("sort", "recommend"))) {
+      case "nearby" -> "distance_km ASC, published_at DESC, id DESC";
+      case "latest" -> "published_at DESC, id DESC";
+      default -> "urgent DESC, published_at DESC, id DESC";
+    };
+    List<Object> pageArgs = new ArrayList<>(whereArgs);
+    pageArgs.add(pageSize);
+    pageArgs.add((long) (page - 1) * pageSize);
+    List<Map<String, Object>> items = queryForList("SELECT * FROM job_notice" + where + " ORDER BY " + order + " LIMIT ? OFFSET ?", pageArgs.toArray())
+      .stream().map(this::notice).toList();
+    int totalPages = total == 0 ? 0 : (int) (((long) total + pageSize - 1) / pageSize);
+    return Map.of(
+      "page", page,
+      "pageSize", pageSize,
+      "size", pageSize,
+      "total", total,
+      "totalPages", totalPages,
+      "hasNext", page < totalPages,
+      "items", items
+    );
+  }
+
+  /** Full-list compatibility method for exports and legacy service callers. */
   public List<Map<String, Object>> notices(Map<String, String> filter) {
-    StringBuilder sql = new StringBuilder("SELECT * FROM job_notice WHERE status<>'DELETED'");
     List<Object> args = new ArrayList<>();
-    if (filter.get("keyword") != null && !filter.get("keyword").isBlank()) { sql.append(" AND (LOWER(title) LIKE LOWER(?) OR LOWER(city) LIKE LOWER(?) OR LOWER(publisher_name) LIKE LOWER(?))"); String kw = "%" + filter.get("keyword") + "%"; args.add(kw); args.add(kw); args.add(kw); }
-    if (filter.get("city") != null && !filter.get("city").isBlank()) { sql.append(" AND city=?"); args.add(filter.get("city")); }
-    if (filter.get("category") != null && !filter.get("category").isBlank()) { sql.append(" AND category=?"); args.add(filter.get("category")); }
-    if (filter.get("jobType") != null && !filter.get("jobType").isBlank()) { sql.append(" AND job_type=?"); args.add(filter.get("jobType")); }
-    sql.append(" ORDER BY urgent DESC, published_at DESC");
-    return queryForList(sql.toString(), args.toArray()).stream().map(this::notice).toList();
+    String where = noticeWhere(filter, args);
+    return queryForList("SELECT * FROM job_notice" + where + " ORDER BY urgent DESC, published_at DESC, id DESC", args.toArray())
+      .stream().map(this::notice).toList();
   }
 
   public Map<String, Object> noticeById(String noticeId) {

@@ -21,7 +21,8 @@ import org.springframework.web.multipart.MultipartFile;
 public class AdminPlatformController {
   private final AdminPlatformService service;
   public AdminPlatformController(AdminPlatformService service) { this.service = service; }
-  private String token(String value) { return value == null ? "" : value.replaceFirst("^Bearer\\s+", ""); }
+  /** RFC 6750 bearer scheme is case-insensitive; trim accidental whitespace from clients. */
+  private String token(String value) { return value == null ? "" : value.replaceFirst("(?i)^Bearer\\s+", "").trim(); }
 
   @PostMapping("/auth/register") public ApiResult<Map<String,Object>> register(@RequestBody Map<String,Object> input) { return ApiResult.ok(service.register(input)); }
   @PostMapping("/auth/login") public ApiResult<Map<String,Object>> login(@RequestBody Map<String,Object> input) { return ApiResult.ok(service.login(input)); }
@@ -40,7 +41,7 @@ public class AdminPlatformController {
   @PostMapping("/users/me/verify") public ApiResult<Map<String,Object>> verify(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.verify(token(auth),input)); }
   @GetMapping("/talents") public ApiResult<List<Map<String,Object>>> talents(@RequestHeader(value="Authorization", required=false) String auth,@RequestParam Map<String,String> filter) { return ApiResult.ok(service.talents(token(auth),filter)); }
   @GetMapping("/talents/{id}") public ApiResult<Map<String,Object>> talent(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id) { return ApiResult.ok(service.talent(token(auth),id)); }
-  @GetMapping("/notices") public ApiResult<List<Map<String,Object>>> notices(@RequestParam Map<String,String> filter) { return ApiResult.ok(service.notices(filter)); }
+  @GetMapping("/notices") public ApiResult<Map<String,Object>> notices(@RequestParam Map<String,String> filter) { return ApiResult.ok(service.noticePage(filter)); }
   @GetMapping("/notices/{id}") public ApiResult<Map<String,Object>> notice(@PathVariable String id) { return ApiResult.ok(service.noticeById(id)); }
   @PostMapping("/notices") public ApiResult<Map<String,Object>> createNotice(@RequestHeader(value="Authorization", required=false) String auth,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.createNotice(token(auth),input)); }
   @PutMapping("/notices/{id}") public ApiResult<Map<String,Object>> updateNotice(@RequestHeader(value="Authorization", required=false) String auth,@PathVariable String id,@RequestBody Map<String,Object> input) { return ApiResult.ok(service.updateNotice(token(auth),id,input)); }

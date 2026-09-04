@@ -16,6 +16,12 @@ spring:
     multipart:
       max-file-size: 300MB
       max-request-size: 300MB
+security:
+  jwt:
+    # 本地开发默认值仅用于跑通链路；上线必须通过 JWT_SECRET 注入长度不少于 32 字节的随机密钥。
+    secret: ${JWT_SECRET:dev-only-change-this-jwt-secret-before-production-20260904}
+    expiration-ms: ${JWT_EXPIRATION_MS:2592000000}
+    issuer: ${JWT_ISSUER:bopin-admin-server}
 management:
   endpoints:
     web:

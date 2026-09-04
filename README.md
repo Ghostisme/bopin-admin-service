@@ -27,6 +27,10 @@ $env:MYSQL_URL = "jdbc:mysql://127.0.0.1:3306/bopin?useUnicode=true&characterEnc
 $env:MYSQL_USERNAME = "bopin"
 $env:MYSQL_PASSWORD = "CHANGE_ME"
 $env:MYSQL_INIT_MODE = "always"   # 自动创建缺失表；已有表不会重建
+# 本地默认密钥只用于开发，正式环境必须覆盖为至少 32 字节的随机值
+$env:JWT_SECRET = "CHANGE_TO_A_RANDOM_SECRET_WITH_AT_LEAST_32_BYTES"
+# 可选：默认 30 天；单位为毫秒
+$env:JWT_EXPIRATION_MS = "2592000000"
 mvn spring-boot:run
 ```
 
@@ -46,6 +50,38 @@ java -jar target/bopin-admin-server-0.1.0.jar --spring.profiles.active=mysql
 ```
 
 默认监听 `http://localhost:8080`，健康检查为 `http://localhost:8080/actuator/health`。启动后可看到 `{"status":"UP"}`，再从小程序访问 `/api/v1`。
+
+## JWT 登录与通告分页
+
+登录和注册成功后，服务端会返回一个由服务端 HMAC 密钥签名的 JWT access token（包含用户 ID、角色、签发时间、过期时间和 `jti`），同时返回 `tokenType=Bearer` 和 `expiresIn`（秒）。需要登录的接口统一使用标准请求头：
+
+```http
+Authorization: Bearer <access-token>
+```
+
+服务端会校验签名、issuer 和过期时间；旧版本已经写入 `auth_session` 的随机 token 仍可在迁移期间兼容读取，但新登录不会再生成旧 token。生产部署必须设置 `JWT_SECRET`（至少 32 字节、不要提交到代码仓库），并按需要设置 `JWT_EXPIRATION_MS` 和 `JWT_ISSUER`。
+
+岗位通告接口已经改为 MySQL 服务端分页，避免客户端一次性拉取整张表：
+
+```http
+GET /api/v1/notices?page=1&pageSize=20&sort=recommend&city=杭州&category=live-commerce&jobType=full-time&keyword=女装
+```
+
+`page` 从 1 开始，`pageSize` 范围为 1–100（缺省 20）；`size` 参数可作为 `pageSize` 的兼容别名。排序支持 `recommend`、`nearby`、`latest`。返回结构：
+
+```json
+{
+  "page": 1,
+  "pageSize": 20,
+  "size": 20,
+  "total": 125,
+  "totalPages": 7,
+  "hasNext": true,
+  "items": []
+}
+```
+
+筛选、总数统计、排序、`LIMIT/OFFSET` 均在 MySQL 执行，管理端旧地址 `/api/admin/notices?page=1&size=20` 也保留并返回分页结果。
 
 ## 小程序连接地址
 
