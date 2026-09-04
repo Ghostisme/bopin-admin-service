@@ -1,5 +1,7 @@
 server:
   port: 8080
+  # 允许同一局域网手机访问本机 Java 服务；正式环境由反向代理绑定公网地址。
+  address: ${SERVER_ADDRESS:0.0.0.0}
 spring:
   application:
     name: bopin-admin-server

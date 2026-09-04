@@ -49,7 +49,7 @@ mvn clean package -DskipTests
 java -jar target/bopin-admin-server-0.1.0.jar --spring.profiles.active=mysql
 ```
 
-默认监听 `http://localhost:8080`，健康检查为 `http://localhost:8080/actuator/health`。启动后可看到 `{"status":"UP"}`，再从小程序访问 `/api/v1`。
+默认监听 `0.0.0.0:8080`（本机可用 `http://localhost:8080`），健康检查为 `http://localhost:8080/actuator/health`。启动后可看到 `{"status":"UP"}`，再从小程序访问 `/api/v1`。同一 Wi-Fi 下的手机请使用电脑局域网 IP，例如 `http://192.168.1.5:8080`。
 
 本地网页调试允许 `localhost`、`127.0.0.1` 和 `198.18.0.1` 的任意开发端口，避免 H5/管理端更换端口后登录预检请求被 CORS 拒绝；正式环境应由网关限制为实际 HTTPS 域名。
 
